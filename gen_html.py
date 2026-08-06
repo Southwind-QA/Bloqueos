@@ -76,6 +76,7 @@ for _, r in res.iterrows():
         "libo": txt(r["FUENTE DE LA LIBERACION"]), "linea": txt(r["LINEA"]), "dest": txt(r["DESTINO RESTRINGIDO"]),
         "mlib": txt(r["MOTIVO DE LA LIBERACION"]), "porcrit": txt(r["ESTADO POR CRITERIO"]),
         "evid": txt(r["EVIDENCIA (ultimas muestras)"]),
+        "firma": txt(r.get("FIRMADA POR", "")),
         "bod": BOD.get(l, []), "prd": PRD.get(l, []),
         "of": txt(r.get("OF", "")),
     })
@@ -260,6 +261,8 @@ td.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .chip.LIBERADO{background:var(--t-good)} .chip.LIBERADO::before{background:var(--good)}
 .chip.SINANALISIS{background:var(--t-warning)} .chip.SINANALISIS::before{background:var(--warning)}
 .chip.PNC{background:var(--t-serious)} .chip.PNC::before{background:var(--serious)}
+.chip.LIBERADOPORDECISION{background:var(--t-good)}
+.chip.LIBERADOPORDECISION::before{background:var(--good)}
 .chip.CANDIDATOALIBERAR{background:var(--t-nitrito);color:var(--ink)}
 .chip.CANDIDATOALIBERAR::before{background:var(--c-nitrito)}
 .chip.SINRESULTADODELAB{background:var(--t-warning)}
@@ -378,6 +381,7 @@ tbody tr.clic:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
         <option value="BLOQ">Bloqueados y PNC</option>
         <option value="CAND">Candidatos a liberar</option>
         <option value="SIN">Sin analisis</option>
+        <option value="FIRM">Liberados por decision firmada</option>
         <option value="TODOS">Todos menos liberados</option></select></div>
       <label class="switch"><input type="checkbox" id="soloStock" checked onchange="pintaBloq()">
         Solo lo que esta en bodega</label>
@@ -516,6 +520,7 @@ function porque(o){
   if(o.lab) h+='<div><span class="hd">Lab</span> '+esc(o.lab)+'</div>';
   if(o.det) h+='<div><span class="hd">Detencion</span> '+esc(o.det)+'</div>';
   if(o.mlib) h+='<div class="note"><b>Por que quedo asi:</b> '+esc(o.mlib)+'</div>';
+  if(o.firma) h+='<div class="note"><b>Firmada por</b> '+esc(o.firma)+'</div>';
   if(o.porcrit) h+='<div class="note">'+esc(o.porcrit)+
     (o.evid?' &middot; '+esc(o.evid):'')+'</div>';
   if(o.linea) h+='<div class="note">Linea '+esc(o.linea)+
@@ -537,7 +542,8 @@ function porque(o){
 // LAB-REG-08. Se resuelve ahi directamente: el stock no participa de esta pregunta
 // (el stock solo guarda el lote base, y esa limitacion pertenece a la otra vista).
 const B = D.batches, BIDX = new Map(B.map(x => [x.n, x]));
-const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,'LIBERADO':4};
+const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
+  'LIBERADO POR DECISION':4,'LIBERADO':5};
 
 // Forma de un lote de planta: prefijo opcional @ (ASC) o B (BAP), digito de anio,
 // dos letras de planta y al menos cuatro digitos. Sin esta puerta, una fecha como
@@ -709,7 +715,8 @@ document.getElementById('fb').innerHTML='<option value="">Todas</option>'+
   D.meta.bodegas.map(b=>'<option>'+esc(b)+'</option>').join('');
 
 const GRUPO={BLOQ:['BLOQUEADO','PNC'],CAND:['CANDIDATO A LIBERAR'],SIN:['SIN ANALISIS'],
-  TODOS:['BLOQUEADO','PNC','CANDIDATO A LIBERAR','SIN ANALISIS']};
+  FIRM:['LIBERADO POR DECISION'],
+  TODOS:['BLOQUEADO','PNC','CANDIDATO A LIBERAR','SIN ANALISIS','LIBERADO POR DECISION']};
 function baseBloq(){
   const g=GRUPO[document.getElementById('fe').value]||GRUPO.BLOQ;
   let d=L.filter(o=>g.includes(o.estado));

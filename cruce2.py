@@ -354,6 +354,68 @@ def liberacion(clave):
         " / ".join(sorted({v for x in m["FUENTE"] for v in str(x).split(" / ")}))
 
 
+# ------------------------------------------------- DECISIONES FIRMADAS
+# Lo declarado por Calidad. El motor lo lee y nunca lo escribe. Es lo unico
+# que convierte un CANDIDATO A LIBERAR en LIBERADO.
+F_DEC = config.ruta("REGISTRO DECISIONES.xlsx")
+dec = pd.DataFrame(columns=["ID", "FECHA", "TIPO", "LOTE", "BATCH", "DETENCION",
+                            "ANULA", "MERCADOS", "EVIDENCIA", "COMENTARIO",
+                            "FIRMADO POR", "RUT", "HUELLA DE CRITERIOS AL FIRMAR"])
+if os.path.exists(F_DEC):
+    try:
+        _d = pd.read_excel(F_DEC, sheet_name="DECISIONES", header=4).dropna(how="all")
+        _d = _d[_d["ID"].notna()]
+        _d = _d[~_d["ID"].astype(str).str.upper().str.startswith("EJEMPLO")]
+        if len(_d):
+            dec = _d
+    except Exception as e:                                          # noqa: BLE001
+        print("  (no se pudo leer REGISTRO DECISIONES.xlsx):", e)
+if len(dec):
+    dec["_FECHA"] = pd.to_datetime(dec["FECHA"], errors="coerce")
+    dec["_TIPO"] = dec["TIPO"].astype(str).str.strip().str.upper()
+    dec["_LOTE"] = dec["LOTE"].map(norm, na_action="ignore")
+    dec["_BATCH"] = dec["BATCH"].map(norm, na_action="ignore")
+    anuladas = set(dec.loc[dec["_TIPO"] == "ANULACION", "ANULA"].dropna().astype(str))
+    dec = dec[~dec["ID"].astype(str).isin(anuladas)]
+    print(f"  decisiones firmadas vigentes: {len(dec)}")
+else:
+    dec["_FECHA"] = pd.NaT
+    dec["_TIPO"] = ""
+    dec["_LOTE"] = ""
+    dec["_BATCH"] = ""
+
+
+def firmada(clave, rows_lab):
+    """Liberacion firmada aplicable a un lote o batch.
+
+    Devuelve (dict de la decision, aviso) o (None, ""). El aviso dice por que
+    una firma existente NO alcanza: o llego un resultado no conforme despues,
+    o cambiaron los criterios.
+    """
+    if not len(dec):
+        return None, ""
+    m = dec[(dec["_TIPO"] == "LIBERACION")
+            & (dec["_BATCH"].fillna("").map(lambda x: bool(x) and emparenta(x, clave))
+               | dec["_LOTE"].fillna("").map(lambda x: bool(x) and emparenta(x, clave)))]
+    if not len(m):
+        return None, ""
+    d = m.sort_values("_FECHA").iloc[-1]
+    f = d["_FECHA"]
+    if pd.notna(f) and len(rows_lab):
+        post = rows_lab[rows_lab["_FECHA"] > f]
+        for c in CRIT:
+            h = historia(post, c)
+            if h["estado"] == "NO CONFORME":
+                return None, (f"Liberacion firmada {d['ID']} del {f:%d/%m/%Y} SUPERADA: "
+                              f"hay un resultado posterior no conforme ({h['txt']})")
+    aviso = ""
+    hf = str(d.get("HUELLA DE CRITERIOS AL FIRMAR", "")).strip()
+    if hf and hf != config.huella_criterios():
+        aviso = (f"Los criterios cambiaron despues de firmar {d['ID']}: "
+                 "conviene revalidar la liberacion")
+    return d, aviso
+
+
 CRIT = ("LISTERIA", "RAM", "NITRITO")
 
 
@@ -635,7 +697,18 @@ for l in universo:
     else:
         estado, origen = "LIBERADO", ""
 
+    # ---- una liberacion firmada manda sobre el veredicto calculado
+    dfirm, aviso_firma = firmada(l, rows_lab)
     obs = []
+    if aviso_firma:
+        obs.append(aviso_firma)
+    if dfirm is not None and estado in ("BLOQUEADO", "CANDIDATO A LIBERAR"):
+        estado = "LIBERADO POR DECISION"
+        origen = "DECISION FIRMADA"
+        obs.append(f"Liberado por {dfirm['ID']} el {dfirm['_FECHA']:%d/%m/%Y}, firmado por "
+                   f"{dfirm.get('FIRMADO POR', 'sin registrar')}"
+                   + (f" para {dfirm['MERCADOS']}" if pd.notna(dfirm.get("MERCADOS")) else "")
+                   + (f". Evidencia: {dfirm['EVIDENCIA']}" if pd.notna(dfirm.get("EVIDENCIA")) else ""))
     if not en_stock and len(dets):
         obs.append("Lote con detencion vigente que NO aparece en ningun stock: "
                    "puede ser lag de informacion, producto aun en proceso, ya despachado, "
@@ -719,8 +792,13 @@ for l in universo:
         "LOTE (normalizado)": l,
         "ESTADO": estado,
         "ORIGEN DEL BLOQUEO": origen,
-        "MOTIVO DE LA LIBERACION": (" | ".join(motivo_lib)
-                                    if estado in ("LIBERADO", "CANDIDATO A LIBERAR") else ""),
+        "MOTIVO DE LA LIBERACION": (
+            (f"Decision firmada {dfirm['ID']}: {dfirm.get('COMENTARIO', '')}"
+             if dfirm is not None and estado == "LIBERADO POR DECISION"
+             else " | ".join(motivo_lib))
+            if estado in ("LIBERADO", "CANDIDATO A LIBERAR", "LIBERADO POR DECISION") else ""),
+        "FIRMADA POR": (str(dfirm.get("FIRMADO POR", "")) if dfirm is not None
+                        and estado == "LIBERADO POR DECISION" else ""),
         "ESTADO POR CRITERIO": por_crit,
         "EVIDENCIA (ultimas muestras)": evidencia,
         "LINEA": linea_l,
@@ -758,7 +836,8 @@ for l in universo:
     })
 
 res = pd.DataFrame(filas)
-orden = {"PNC": 0, "BLOQUEADO": 1, "CANDIDATO A LIBERAR": 2, "SIN ANALISIS": 3, "LIBERADO": 4}
+orden = {"PNC": 0, "BLOQUEADO": 1, "CANDIDATO A LIBERAR": 2, "SIN ANALISIS": 3,
+         "LIBERADO POR DECISION": 4, "LIBERADO": 5}
 res = res.sort_values(["ESTADO", "EN STOCK", "LOTE"],
                       key=lambda c: c.map(orden) if c.name == "ESTADO" else c).reset_index(drop=True)
 
@@ -1017,11 +1096,13 @@ ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=k2)
 hf = PatternFill("solid", fgColor="1F3864")
 thin = Side(style="thin", color="BFBFBF")
 fills = {"PNC": PatternFill("solid", fgColor="D9D9D9"),
+         "LIBERADO POR DECISION": PatternFill("solid", fgColor="C6EFCE"),
          "BLOQUEADO": PatternFill("solid", fgColor="FFC7CE"),
          "CANDIDATO A LIBERAR": PatternFill("solid", fgColor="DDEBF7"),
          "SIN ANALISIS": PatternFill("solid", fgColor="FFEB9C"),
          "LIBERADO": PatternFill("solid", fgColor="C6EFCE")}
 fonts = {"PNC": Font(name="Arial", size=10, bold=True, color="3F3F3F"),
+         "LIBERADO POR DECISION": Font(name="Arial", size=10, bold=True, color="006100"),
          "BLOQUEADO": Font(name="Arial", size=10, bold=True, color="9C0006"),
          "CANDIDATO A LIBERAR": Font(name="Arial", size=10, bold=True, color="1F4E79"),
          "SIN ANALISIS": Font(name="Arial", size=10, bold=True, color="9C6500"),
