@@ -3,6 +3,10 @@
 Cruza el stock de bodega contra los resultados de laboratorio y las detenciones
 declaradas por correo, y determina qué producto está bloqueado y por qué.
 
+> **¿Retomando este proyecto?** Parte por [`CONTEXTO.md`](CONTEXTO.md): las decisiones
+> tomadas, las trampas del dominio y lo que sigue abierto. Este archivo explica cómo
+> funciona el código; ese explica por qué.
+
 ```bash
 python actualizar.py
 ```
@@ -85,7 +89,11 @@ config.py        criterios, límites y rutas
 descargar_fishken.py  baja los reportes de stock desde Fishken, sin navegador
 cruce2.py        el motor: normaliza, evalúa y escribe el Excel
 gen_html.py      genera la página de consulta a partir del Excel
-actualizar.py    corre los dos pasos en orden
+actualizar.py    corre la sincronización, el cruce y la página en orden
+sincronizar_lab.py    trae los LAB-REG-08 desde la carpeta del laboratorio
+cargar_supabase.py    sube el resultado a Postgres
+crear_decisiones.py   crea el registro de liberaciones firmadas
+web/             el sitio que consulta la base (Cloudflare Pages)
 valida.py        validador de paletas de color (port del de la skill dataviz)
 supabase/        migraciones del esquema y los permisos (Supabase las aplica al mergear a main)
 historial/       snapshot y log de cambios entre corridas (dato, no código)
