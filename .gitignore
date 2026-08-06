@@ -1,0 +1,31 @@
+# Datos. Nunca al repositorio: pesan, cambian todos los dias y son
+# informacion comercial y de inocuidad. En el despliegue viven en Storage.
+*.xlsx
+*.xlsm
+*.csv
+*.pdf
+
+# Salidas generadas por el pipeline
+CONSULTA BLOQUEOS.html
+BLOQUEOS - Cruce Stock vs LAB-REG-08.xlsx
+RECONCILIACION SAP vs LAB.xlsx
+monitor_camaras.csv
+
+# El historial es dato, no codigo: se reconstruye corriendo el pipeline y en
+# el despliegue vive en la base. Se ignora entero salvo el README que explica
+# que hay adentro.
+historial/
+!historial/README.md
+
+# Excel deja estos al abrir un archivo
+~$*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Configuracion local con rutas o secretos
+.env
+.env.local
