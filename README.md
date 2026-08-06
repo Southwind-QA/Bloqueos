@@ -69,7 +69,7 @@ Tres reglas transversales:
 
 | Archivo | Qué aporta |
 |---|---|
-| `FRIGORÍFICO SOUTH WIND - *.xlsx` | Stock por caja: cliente, condición, OF, producto. Uno por bodega |
+| `FRIGORÍFICO SOUTH WIND - *.xlsx` | Stock por caja: cliente, condición, OF, producto. Los baja `descargar_fishken.py` |
 | `LAB-REG-08*.xlsx` | Resultados de laboratorio. Uno por año, con estructura levemente distinta entre años |
 | `REGISTRO DETENCIONES.xlsx` | Detenciones por correo. **Se lee, nunca se sobrescribe** |
 | `Bloqueo 2026.xlsm` | Registro operativo: liberaciones declaradas con su mercado |
@@ -82,6 +82,7 @@ se exportó antes de que ingresara.
 
 ```
 config.py        criterios, límites y rutas
+descargar_fishken.py  baja los reportes de stock desde Fishken, sin navegador
 cruce2.py        el motor: normaliza, evalúa y escribe el Excel
 gen_html.py      genera la página de consulta a partir del Excel
 actualizar.py    corre los dos pasos en orden
