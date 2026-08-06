@@ -148,6 +148,51 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
 .mini td{padding:6px 8px;border-bottom:1px solid var(--line)}
 </style></head><body>
 
+<noscript><div class="login"><div class="card"><h2>Control de bloqueos</h2>
+  <p class="lead">Esta página necesita JavaScript activado para funcionar.</p></div></div></noscript>
+
+<div id="boot" class="login">
+  <div class="card">
+    <h2 id="bootTit">Control de bloqueos</h2>
+    <p class="lead" id="bootMsg">Cargando…</p>
+    <div class="acts" id="bootActs" hidden>
+      <button class="btn" onclick="location.reload()">Reintentar</button>
+    </div>
+    <div class="err" id="bootErr"></div>
+  </div>
+</div>
+
+<script>
+/* Bloque clasico a proposito, no un modulo. Si el modulo de mas abajo no llega
+   a ejecutarse -- un error de sintaxis, esm.sh inalcanzable, la red de planta
+   bloqueando el CDN -- este sigue vivo y dice que paso. Sin el, cualquiera de
+   esas fallas deja la pagina en blanco, sin una sola pista de por que. */
+(function(){
+  var arranco = false;
+  var reloj = setTimeout(function(){ falla('La carga tardó demasiado.'); }, 12000);
+  function falla(detalle){
+    var b = document.getElementById('boot');
+    if(arranco || !b || b.hidden) return;
+    clearTimeout(reloj);
+    document.getElementById('bootTit').textContent = 'No se pudo cargar la aplicación';
+    document.getElementById('bootMsg').textContent = 'La página quedó a medio cargar, así que no '+
+      'muestra nada en vez de mostrarte datos incompletos. Suele ser la conexión, o la red '+
+      'bloqueando esm.sh o supabase.co. Si se repite, avisa a quien mantiene el sistema.';
+    document.getElementById('bootErr').textContent = detalle || '';
+    document.getElementById('bootActs').hidden = false;
+  }
+  // En captura, para enterarse tambien de los recursos que no cargan: el error
+  // de un <script src> no burbujea hasta window.
+  addEventListener('error', function(e){
+    falla(e.message || (e.target && e.target.src ? 'No se pudo cargar ' + e.target.src : ''));
+  }, true);
+  addEventListener('unhandledrejection', function(e){
+    falla(e.reason && e.reason.message ? e.reason.message : String(e.reason || ''));
+  });
+  window.__arranco = function(){ arranco = true; clearTimeout(reloj); };
+})();
+</script>
+
 <div id="login" class="login" hidden>
   <div class="card">
     <h2>Control de bloqueos</h2>
@@ -283,7 +328,11 @@ async function arranque(){
   }
   yo = u; await entrar();
 }
+// Apaga el vigilante de arranque: de aqui en adelante ya hay algo en pantalla,
+// y los errores los reporta cada pantalla por su cuenta.
+function mostrarUI(){ if(window.__arranco) window.__arranco(); $('boot').hidden = true; }
 function mostrarLogin(msg){
+  mostrarUI();
   $('login').hidden = false; $('app').hidden = true;
   if(msg) $('errLogin').textContent = msg;
 }
@@ -299,6 +348,7 @@ $('fLogin').addEventListener('submit', async e => {
 $('btnSalir').addEventListener('click', async () => {await sb.auth.signOut(); location.reload();});
 
 async function entrar(){
+  mostrarUI();
   $('login').hidden = true; $('app').hidden = false;
   $('sub').textContent = 'cargando…';
   // Se traen los indices completos una vez: son ~2.900 filas y todas las
@@ -508,8 +558,7 @@ function filasExportables(vista){
     (o.bodegas||[]).join(' / '), (o.productos||[]).join(' / '), (o.clientes||[]).join(' / '),
     o.cajas, Math.round(o.kg||0)])};
 }
-const limpiaCelda = v => String(v==null?'':v).replace(/[	
-]+/g,' ').trim();
+const limpiaCelda = v => String(v==null?'':v).replace(/[\t\r\n]+/g,' ').trim();
 function aviso(t){
   const el = $('avisoCopia'); if(!el) return;
   el.textContent = t; setTimeout(()=>{el.textContent='';}, 4000);
@@ -517,8 +566,7 @@ function aviso(t){
 window.copiar = async vista => {
   const {cab, filas} = filasExportables(vista);
   if(!filas.length) return aviso('No hay nada que copiar.');
-  const tsv = [cab.join('	'), ...filas.map(f=>f.map(limpiaCelda).join('	'))].join('
-');
+  const tsv = [cab.join('\t'), ...filas.map(f=>f.map(limpiaCelda).join('\t'))].join('\n');
   try {
     await navigator.clipboard.writeText(tsv);
     aviso(`${filas.length} filas copiadas. Pega directo en Excel.`);
@@ -530,8 +578,7 @@ window.excel = vista => {
   const {cab, filas, nombre} = filasExportables(vista);
   if(!filas.length) return aviso('No hay nada que exportar.');
   const q = v => '"' + limpiaCelda(v).replace(/"/g,'""') + '"';
-  const csv = [cab.map(q).join(';'), ...filas.map(f=>f.map(q).join(';'))].join('
-');
+  const csv = [cab.map(q).join(';'), ...filas.map(f=>f.map(q).join(';'))].join('\r\n');
   const hoy = new Date().toISOString().slice(0,10);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'}));
@@ -583,5 +630,8 @@ window.verLinea = i => {
     grp('Resultado', detalleLinea(x)));
 };
 
-arranque();
+// Si ni siquiera se pudo preguntar por la sesion, cae al login con el motivo a
+// la vista. Quedarse en "cargando" para siempre es la falla que hay que evitar.
+arranque().catch(e => mostrarLogin('No se pudo verificar tu sesión: ' +
+  (e && e.message ? e.message : e)));
 </script></body></html>
