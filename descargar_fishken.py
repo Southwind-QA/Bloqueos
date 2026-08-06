@@ -2,8 +2,8 @@
 """Descarga los reportes de stock desde Fishken, sin abrir el navegador.
 
     Requiere FISHKEN_USER y FISHKEN_PWD en las variables de entorno.
-    python descargar_fishken.py            # todas las bodegas en un archivo
-    python descargar_fishken.py C1 C2 C3   # una bodega por archivo
+    python descargar_fishken.py            # las tres bodegas que usa el cruce
+    python descargar_fishken.py C6         # una en particular
 
 Fishken es ASP.NET WebForms: no hay una URL de exportacion. Cada formulario
 viaja con tokens que el servidor genera en cada carga -__VIEWSTATE,
@@ -90,7 +90,14 @@ if "Principal.aspx" not in r.text:
              "Revisa las credenciales o si la pantalla de acceso cambio.")
 s.get(BASE + "/Principal.aspx", timeout=60)   # el navegador la abre; se replica
 
-pedidas = [a.upper() for a in sys.argv[1:]] or ["T0"]
+# T0 (TODAS) sirve para mirar en pantalla pero NO para exportar: la busqueda
+# arma una grilla por bodega y el boton baja solo la primera, asi que el archivo
+# sale con una sola. Por eso el valor por omision son las tres que usa el cruce.
+PREDETERMINADAS = ["C3", "C1", "C2"]
+pedidas = [a.upper() for a in sys.argv[1:]] or PREDETERMINADAS
+if "T0" in pedidas:
+    print("AVISO: T0 exporta solo la primera bodega de la grilla, no todas. "
+          "Pide las bodegas por separado si quieres todas.\n")
 desconocidas = [b for b in pedidas if b not in BODEGAS]
 if desconocidas:
     sys.exit(f"Bodega desconocida: {desconocidas}. Validas: {', '.join(BODEGAS)}")
@@ -139,6 +146,12 @@ for sala in pedidas:
     kb = os.path.getsize(destino) // 1024
     if kb < 5:
         sys.exit(f"  El archivo salio de {kb} KB: casi seguro esta vacio. Revisa la pantalla.")
+    # El nombre lo pone el servidor segun la grilla exportada: si no coincide con
+    # lo pedido, bajamos otra bodega y hay que enterarse.
+    esperado = BODEGAS[sala].upper()
+    if sala != "T0" and esperado not in nombre.upper():
+        print(f"\n  ATENCION: se pidio {sala} ({esperado}) y el servidor devolvio "
+              f"'{nombre}'. Revisa antes de usar este archivo.")
     print(f" {nombre}  ({kb} KB)")
 
 print("\nListo.")
