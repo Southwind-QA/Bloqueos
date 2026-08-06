@@ -14,7 +14,7 @@ monitor_camaras.csv
 # El historial es dato, no codigo: se reconstruye corriendo el pipeline y en
 # el despliegue vive en la base. Se ignora entero salvo el README que explica
 # que hay adentro.
-historial/
+historial/*
 !historial/README.md
 
 # Excel deja estos al abrir un archivo
@@ -25,6 +25,9 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Ajustes locales del editor/herramientas
+.claude/settings.local.json
 
 # Configuracion local con rutas o secretos
 .env
