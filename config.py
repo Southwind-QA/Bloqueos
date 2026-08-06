@@ -57,6 +57,15 @@ BACON_WHEEL = r"\bbacon\b|\bwheel\b"
 TXT_REFRIGERADA = "refrigerad"
 TXT_CONGELADA = ("carpaccio", "congelad")
 
+# ------------------------------------------------------------------ origenes
+# Los LAB-REG-08 los edita el laboratorio en su carpeta de registros. Se copian
+# desde ahi antes de cada corrida en vez de que alguien los traiga a mano: asi
+# el cruce lee siempre una copia estable, y si el original esta a medio guardar
+# la copia anterior sigue sirviendo.
+DIR_LAB = os.environ.get(
+    "BLOQUEOS_DIR_LAB",
+    r"C:\Users\Usuario\Documents\doc_BRC\SSCA\REGISTROS\LABORATORIO\Registro En Linea")
+
 # ------------------------------------------------------------------ archivos
 ARCH_DETENCIONES = "REGISTRO DETENCIONES.xlsx"
 ARCH_OPERATIVO = "Bloqueo 2026.xlsm"

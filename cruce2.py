@@ -6,6 +6,7 @@ Dos origenes de bloqueo con naturaleza distinta:
   - DETENCION  : declarado por correo. Entrada durable, el script solo la lee.
 Se acumulan: un lote con ambos necesita cerrar los dos.
 """
+import datetime
 import os
 import re
 import glob
@@ -84,6 +85,9 @@ stock["_L"] = stock["LOTE DE PLANTA"].map(norm)
 INFO = ["CÓDIGO LAB", "FECHA INGRESO", "TIPO ", "GRUPO", "PRESENTACIÓN", "LOTE SW", "OBSERVACIÓN"]
 
 
+_HOJAS_VISTAS = {}
+
+
 def carga_lab(f):
     n = os.path.basename(f)
     xls = pd.ExcelFile(f)
@@ -91,6 +95,13 @@ def carga_lab(f):
     if not hojas:
         print("  (lab omitido, sin hoja RESULTADOS MICRO):", n)
         return None
+    # Dos archivos con la misma hoja son el mismo anio: cargarlos ambos duplica
+    # cada muestra. Pasa apenas queda una copia vieja con otro nombre.
+    if hojas[0] in _HOJAS_VISTAS:
+        print(f"  (lab OMITIDO por duplicar {hojas[0]}): {n}")
+        print(f"      ya se cargo desde {_HOJAS_VISTAS[hojas[0]]}. Borra el que sobre.")
+        return None
+    _HOJAS_VISTAS[hojas[0]] = n
     d = pd.read_excel(f, sheet_name=hojas[0], header=2).dropna(how="all")
     d = d[d["LOTE SW"].notna()].copy()
     cols = list(d.columns)
@@ -113,11 +124,14 @@ def carga_lab(f):
     out["NITRITO PROMEDIO"] = d[prom] if prom else None
     out["A/R Nitrito"] = d[ar] if ar else ""
     out["FUENTE LAB"] = hojas[0]
+    out["_ARCHIVO"] = n
+    out["_GUARDADO"] = pd.Timestamp(datetime.datetime.fromtimestamp(os.path.getmtime(f)))
     print(f"  lab: {n}  ->  {len(out)} muestras con lote  |  hoja: {hojas[0]}"
           + ("" if ar else "  (sin columna A/R Nitrito)"))
     return out
 
 
+LABS = sorted(LABS, key=os.path.getmtime, reverse=True)
 marcos_lab = [x for x in (carga_lab(f) for f in LABS) if x is not None]
 if not marcos_lab:
     raise SystemExit("No se encontro ningun LAB-REG-08 legible.")
@@ -1040,16 +1054,26 @@ d_det["PROPUESTA DE LIBERACION"] = det["_L"].map(
 # ----------------------------------------------------------------- escritura
 # Ventana de cada fuente: es lo que explica el desfase entre bodega, laboratorio y correos.
 fuentes = []
+def _guardado(nombre):
+    # fromtimestamp da hora local; pd.Timestamp(unit="s") da UTC y mostraria la
+    # hora corrida cuatro horas, que en una hoja de auditoria confunde.
+    r = config.ruta(nombre)
+    return (pd.Timestamp(datetime.datetime.fromtimestamp(os.path.getmtime(r)))
+            if os.path.exists(r) else pd.NaT)
+
+
 for a, g in stock.groupby("ARCHIVO ORIGEN"):
     f = pd.to_datetime(g["FECHA INGRESO"], errors="coerce")
     fuentes.append({"FUENTE": "Stock", "ARCHIVO": a, "REGISTROS": len(g),
-                    "DESDE": f.min(), "HASTA": f.max()})
+                    "DESDE": f.min(), "HASTA": f.max(), "ARCHIVO GUARDADO": _guardado(a)})
 for h, g in lab.groupby("FUENTE LAB"):
     fuentes.append({"FUENTE": "Laboratorio", "ARCHIVO": h, "REGISTROS": len(g),
-                    "DESDE": g["_FECHA"].min(), "HASTA": g["_FECHA"].max()})
+                    "DESDE": g["_FECHA"].min(), "HASTA": g["_FECHA"].max(),
+                    "ARCHIVO GUARDADO": g["_GUARDADO"].max()})
 fd = pd.to_datetime(det["FECHA CORREO"], errors="coerce")
 fuentes.append({"FUENTE": "Detenciones", "ARCHIVO": os.path.basename(F_DET), "REGISTROS": len(det),
-                "DESDE": fd.min(), "HASTA": fd.max()})
+                "DESDE": fd.min(), "HASTA": fd.max(),
+                "ARCHIVO GUARDADO": _guardado(os.path.basename(F_DET))})
 fuentes = pd.DataFrame(fuentes)
 
 with pd.ExcelWriter(OUT, engine="openpyxl") as xl:

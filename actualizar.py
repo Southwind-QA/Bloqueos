@@ -21,7 +21,8 @@ import traceback
 import config
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
-PASOS = [("Cruzando stock, laboratorio y detenciones", "cruce2.py"),
+PASOS = [("Trayendo los LAB-REG-08 del laboratorio", "sincronizar_lab.py"),
+         ("Cruzando stock, laboratorio y detenciones", "cruce2.py"),
          ("Generando la pagina de consulta", "gen_html.py")]
 
 # La consola de Windows suele venir en cp1252 y los nombres de archivo traen
