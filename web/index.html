@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Control de bloqueos — South Wind</title>
+<style>
+:root{
+  color-scheme:light;
+  --canvas:#f6f5f2; --surface:#fbfaf8; --surface-2:#f1efe9;
+  --ink:#1a1a18; --ink-2:#5a5852; --ink-3:#8a8880;
+  --line:#e4e1d9; --line-2:#d3cfc4; --focus:#5181c7;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --t-good:#e3f3e1; --t-warning:#fdf0d6; --t-serious:#fbe7dd; --t-critical:#f8e0e0;
+  --t-neutral:#eceae3;
+  --c-listeria:#b85f81; --c-ram:#987e0c; --c-nitrito:#5181c7;
+  --t-listeria:#f5e4ea; --t-ram:#efeada; --t-nitrito:#e2eaf7;
+  --shadow:0 1px 2px rgba(26,26,24,.04),0 4px 16px rgba(26,26,24,.05);
+}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme=light])){
+  color-scheme:dark;
+  --canvas:#16171a; --surface:#1e2024; --surface-2:#262930;
+  --ink:#f2f1ee; --ink-2:#b6b4ad; --ink-3:#8a8880;
+  --line:#2e3138; --line-2:#3c4048; --focus:#5a8ad1;
+  --t-good:#1d3320; --t-warning:#38300f; --t-serious:#3a2a20; --t-critical:#3a2224;
+  --t-neutral:#2a2d33;
+  --c-listeria:#c2688a; --c-ram:#a1871e; --c-nitrito:#5a8ad1;
+  --t-listeria:#33222a; --t-ram:#2f2a17; --t-nitrito:#1f2a3b;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.24);
+}}
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --canvas:#16171a; --surface:#1e2024; --surface-2:#262930;
+  --ink:#f2f1ee; --ink-2:#b6b4ad; --ink-3:#8a8880;
+  --line:#2e3138; --line-2:#3c4048; --focus:#5a8ad1;
+  --t-good:#1d3320; --t-warning:#38300f; --t-serious:#3a2a20; --t-critical:#3a2224;
+  --t-neutral:#2a2d33;
+  --c-listeria:#c2688a; --c-ram:#a1871e; --c-nitrito:#5a8ad1;
+  --t-listeria:#33222a; --t-ram:#2f2a17; --t-nitrito:#1f2a3b;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.24);
+}
+*{box-sizing:border-box} html,body{margin:0;padding:0}
+body{background:var(--canvas);color:var(--ink);
+  font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.bar{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--canvas) 88%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.bar-in{max-width:1460px;margin:0 auto;padding:13px 22px;display:flex;gap:16px;
+  align-items:center;flex-wrap:wrap}
+.brand{font-size:16px;font-weight:640;margin:0;letter-spacing:-.01em}
+.brand small{display:block;font-size:12px;font-weight:400;color:var(--ink-3);margin-top:1px}
+.spacer{flex:1}
+.wrap{max-width:1460px;margin:0 auto;padding:22px 22px 80px}
+.seg{display:inline-flex;gap:3px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:11px;padding:3px;flex-wrap:wrap}
+.seg button{background:transparent;border:0;color:var(--ink-2);padding:8px 15px;border-radius:8px;
+  cursor:pointer;font:inherit;font-size:13.5px;font-weight:550;white-space:nowrap}
+.seg button[aria-selected=true]{background:var(--surface);color:var(--ink);
+  box-shadow:0 1px 2px rgba(0,0,0,.07)}
+.icobtn{background:var(--surface);border:1px solid var(--line);color:var(--ink-2);height:36px;
+  min-width:36px;padding:0 11px;border-radius:10px;cursor:pointer;font:inherit;font-size:13px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+  margin-bottom:16px;box-shadow:var(--shadow)}
+.card h2{margin:0 0 3px;font-size:15px;font-weight:620}
+.lead{color:var(--ink-2);font-size:13px;margin:0 0 14px}
+label.fld{display:block;font-size:11.5px;font-weight:620;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--ink-3);margin-bottom:6px}
+textarea,input,select{width:100%;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);
+  border-radius:10px;padding:11px 13px;font:inherit;font-size:14px}
+textarea{min-height:150px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;resize:vertical}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--focus);outline-offset:-1px}
+.btn{background:var(--ink);color:var(--canvas);border:0;padding:10px 20px;border-radius:10px;
+  cursor:pointer;font:inherit;font-size:14px;font-weight:600}
+.btn.ghost{background:transparent;color:var(--ink-2);border:1px solid var(--line)}
+.acts{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.toolbar{display:grid;grid-template-columns:minmax(220px,1.6fr) minmax(150px,1fr) auto;gap:12px;
+  align-items:end}
+@media(max-width:760px){.toolbar{grid-template-columns:1fr}}
+.tiles{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:13px 17px;
+  flex:1 1 130px;min-width:130px;max-width:230px;box-shadow:var(--shadow)}
+.tile b{display:block;font-size:25px;font-weight:640;letter-spacing:-.025em;line-height:1.15}
+.tile span{font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
+.chips{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+.fchip{display:flex;flex-direction:column;gap:2px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:11px;padding:9px 14px;cursor:pointer;font:inherit;text-align:left;min-width:118px;color:var(--ink)}
+.fchip[aria-pressed=true]{border-color:currentColor;box-shadow:inset 0 0 0 1px currentColor}
+.fchip .nm{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:620}
+.fchip .dot{width:9px;height:9px;border-radius:3px;background:currentColor}
+.fchip .vl{font-size:19px;font-weight:640;color:var(--ink)}
+.fchip .sb{font-size:11.5px;color:var(--ink-3)}
+.fchip.listeria{color:var(--c-listeria)} .fchip.ram{color:var(--c-ram)}
+.fchip.nitrito{color:var(--c-nitrito)} .fchip.det{color:var(--serious)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface);
+  box-shadow:var(--shadow)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
+table.wide{min-width:1100px}
+th{background:var(--surface-2);text-align:left;padding:11px 13px;position:sticky;top:0;font-weight:620;
+  font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap;
+  border-bottom:1px solid var(--line);z-index:2}
+td{padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr.clic{cursor:pointer} tbody tr.clic:hover td{background:var(--surface-2)}
+td.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5px}
+.mono{font-family:ui-monospace,Consolas,monospace;font-weight:620;white-space:nowrap;font-size:12.5px}
+.mut{color:var(--ink-3);font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border-radius:20px;
+  font-size:11.5px;font-weight:620;white-space:nowrap;background:var(--t-neutral);color:var(--ink)}
+.chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ink-3)}
+.chip.BLOQUEADO{background:var(--t-critical)} .chip.BLOQUEADO::before{background:var(--critical)}
+.chip.LIBERADO{background:var(--t-good)} .chip.LIBERADO::before{background:var(--good)}
+.chip.LIBERADOPORDECISION{background:var(--t-good)} .chip.LIBERADOPORDECISION::before{background:var(--good)}
+.chip.SINANALISIS{background:var(--t-warning)} .chip.SINANALISIS::before{background:var(--warning)}
+.chip.SINRESULTADODELAB{background:var(--t-warning)} .chip.SINRESULTADODELAB::before{background:var(--warning)}
+.chip.PNC{background:var(--t-serious)} .chip.PNC::before{background:var(--serious)}
+.chip.CANDIDATOALIBERAR{background:var(--t-nitrito)} .chip.CANDIDATOALIBERAR::before{background:var(--c-nitrito)}
+.tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:620;margin:0 4px 3px 0}
+.tag.LISTERIA{background:var(--t-listeria);color:var(--c-listeria)}
+.tag.RAM{background:var(--t-ram);color:var(--c-ram)}
+.tag.NITRITO{background:var(--t-nitrito);color:var(--c-nitrito)}
+.tag.DETENCION{background:var(--t-serious);color:var(--serious)}
+.why{font-size:12.5px;line-height:1.5}
+.why .hd{font-weight:620;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+.note{color:var(--ink-2);font-size:12px;margin-top:3px}
+.mot{color:var(--critical);font-weight:600}
+.empty{padding:46px 20px;text-align:center;color:var(--ink-3)}
+.aviso{display:flex;gap:11px;background:var(--t-warning);border:1px solid var(--warning);
+  border-radius:12px;padding:12px 15px;font-size:13px;margin-bottom:16px}
+.login{max-width:400px;margin:12vh auto;padding:0 20px}
+.login .card{padding:26px}
+.err{color:var(--critical);font-size:13px;margin-top:10px}
+.bd{position:fixed;inset:0;background:rgba(10,10,12,.42);z-index:40;opacity:0;pointer-events:none;
+  transition:opacity .15s}
+.bd.on{opacity:1;pointer-events:auto}
+.dw{position:fixed;top:0;right:0;height:100%;width:min(820px,97vw);background:var(--surface);
+  border-left:1px solid var(--line);z-index:50;transform:translateX(102%);transition:transform .2s;
+  overflow-y:auto;box-shadow:-10px 0 44px rgba(0,0,0,.2)}
+.dw.on{transform:none}
+.dh{position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--line);padding:16px 20px;
+  display:flex;gap:12px;align-items:flex-start;z-index:2}
+.dh .t{flex:1;min-width:0} .dh .t b{font-family:ui-monospace,Consolas,monospace;font-size:15px;display:block}
+.db{padding:18px 20px 70px}
+.grp{margin-bottom:22px}
+.grp h3{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);margin:0 0 9px;
+  padding-bottom:6px;border-bottom:1px solid var(--line)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px;margin:0}
+.kv dt{color:var(--ink-3);white-space:nowrap} .kv dd{margin:0}
+.mini{width:100%;font-size:12.5px;border-collapse:collapse}
+.mini th{position:static;background:transparent;color:var(--ink-3);font-size:10.5px;padding:5px 8px}
+.mini td{padding:6px 8px;border-bottom:1px solid var(--line)}
+</style></head><body>
+
+<div id="login" class="login" hidden>
+  <div class="card">
+    <h2>Control de bloqueos</h2>
+    <p class="lead">Frigorífico South Wind. Acceso con tu correo corporativo.</p>
+    <form id="fLogin">
+      <label class="fld" for="email">Correo</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <div style="height:12px"></div>
+      <label class="fld" for="pass">Contraseña</label>
+      <input id="pass" type="password" autocomplete="current-password" required>
+      <div class="acts"><button class="btn" type="submit" id="btnEntrar">Entrar</button></div>
+      <div class="err" id="errLogin"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <div class="bd" id="bd" onclick="cerrar()"></div>
+  <aside class="dw" id="dw" role="dialog" aria-modal="true"><div class="dh" id="dh"></div><div class="db" id="db"></div></aside>
+
+  <div class="bar"><div class="bar-in">
+    <h1 class="brand">Control de bloqueos<small id="sub"></small></h1>
+    <div class="spacer"></div>
+    <div class="seg" id="nav"></div>
+    <button class="icobtn" onclick="tema()" title="Tema">&#9681;</button>
+    <button class="icobtn" id="btnSalir">Salir</button>
+  </div></div>
+
+  <div class="wrap">
+    <section id="v-consulta">
+      <div class="card">
+        <h2>Consulta con packing list</h2>
+        <p class="lead">Cada línea se resuelve <b>contra el laboratorio</b>, al nivel de batch que venga
+          en el packing list. No interviene el stock. Haz clic en una fila para ver el detalle.</p>
+        <label class="fld" for="pl">Contenido</label>
+        <textarea id="pl" placeholder="Pega aquí el packing list..."></textarea>
+        <div class="acts">
+          <button class="btn" onclick="correr()">Analizar</button>
+          <button class="btn ghost" onclick="document.getElementById('pl').value='';correr()">Limpiar</button>
+          <span class="mut">o Ctrl + Enter</span>
+        </div>
+      </div>
+      <div id="k-consulta"></div><div id="r-consulta"></div>
+    </section>
+
+    <section id="v-stock" hidden>
+      <div class="card">
+        <h2>Estado de stock</h2>
+        <p class="lead">Cuánto de lo que hay en bodega está bloqueado, y por qué causa.
+          Criterios: RAM en toda línea; nitrito en refrigerada y en bacon/wheel; Listeria en
+          refrigerada y en congelada con destino EE.UU. o Costa Rica.</p>
+        <div class="aviso"><span>&#9432;</span><div>El stock viene de <b>Fishken</b>, que registra el lote
+          hasta el número pero <b>no la letra del batch de ahumado</b>. Por eso un lote arrastra a todos
+          sus batches. Para consultar un batch puntual usa <b>Consulta con packing list</b>.</div></div>
+        <div class="toolbar">
+          <div><label class="fld" for="f2">Buscar</label>
+            <input type="text" id="f2" placeholder="Lote, producto, cliente, motivo..." oninput="pintaStock()"></div>
+          <div><label class="fld" for="fe">Estado</label><select id="fe" onchange="pintaStock()">
+            <option value="BLOQ">Bloqueados y PNC</option>
+            <option value="CAND">Candidatos a liberar</option>
+            <option value="SIN">Sin análisis</option>
+            <option value="TODOS">Todos menos liberados</option></select></div>
+          <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--ink-2);padding:10px 0">
+            <input type="checkbox" id="soloStock" checked onchange="pintaStock()" style="width:15px">
+            Solo lo que está en bodega</label>
+        </div>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div id="k-stock"></div><div id="r-stock"></div>
+    </section>
+
+    <section id="v-buscar" hidden>
+      <div class="card">
+        <h2>Buscar</h2>
+        <p class="lead">Búsqueda libre sobre cualquier atributo: código con o sin prefijo @ o B,
+          producto, cliente o bodega. Incluye todos los estados.</p>
+        <label class="fld" for="f3">Término</label>
+        <input type="text" id="f3" placeholder="Lote, producto, cliente o bodega..." oninput="pintaBusca()">
+      </div>
+      <div id="r-buscar"></div>
+    </section>
+  </div>
+</div>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+// La clave publishable es publica por diseno: no salta RLS. Lo que cada persona
+// ve depende de su sesion y de las policies. La secreta jamas va aqui.
+const SUPABASE_URL = 'https://qfxoccnlxvbumynfrgqx.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_jJaF0aasTCa8jkov8c3w1A_IATfrK1B';
+
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { db: { schema: 'bloqueos' } });
+const MIN = 8;
+const CAUSAS = [
+  {k:'LISTERIA', nm:'Listeria', c:'listeria'}, {k:'RAM', nm:'RAM', c:'ram'},
+  {k:'NITRITO', nm:'Nitrito', c:'nitrito'}, {k:'DETENCION', nm:'Detención', c:'det'}];
+const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
+             'LIBERADO POR DECISION':4,'LIBERADO':5};
+const VIEWS = [['consulta','Consulta con packing list'],['stock','Estado de stock'],['buscar','Buscar']];
+
+let L = [], B = [], BIDX = new Map(), yo = null, sel = new Set(), ULT = [];
+
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf = n => Number(n||0).toLocaleString('es-CL');
+const cls = e => String(e).toUpperCase().replace(/[^A-Z]/g,'');
+const chip = e => '<span class="chip '+cls(e)+'">'+esc(e)+'</span>';
+const norm = s => String(s).trim().toUpperCase().split('*')[0].replace(/[^A-Z0-9@]/g,'');
+const RX_LOTE = /^[@B]?\d[A-Z]{2}\d{4,}/;
+const esLote = t => RX_LOTE.test(norm(t)) && norm(t).length >= MIN;
+const $ = id => document.getElementById(id);
+window.tema = () => {const r=document.documentElement;
+  const d=r.dataset.theme||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+  r.dataset.theme = d==='dark'?'light':'dark';};
+
+// ---------------------------------------------------------------- sesion
+async function arranque(){
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session) return mostrarLogin();
+  const {data:u, error} = await sb.from('usuario').select('*').eq('id', session.user.id).maybeSingle();
+  if(error || !u){
+    await sb.auth.signOut();
+    return mostrarLogin('Tu cuenta existe pero no está autorizada para este sistema. '+
+      'Pide que agreguen tu correo a la lista de personas autorizadas.');
+  }
+  yo = u; await entrar();
+}
+function mostrarLogin(msg){
+  $('login').hidden = false; $('app').hidden = true;
+  if(msg) $('errLogin').textContent = msg;
+}
+$('fLogin').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('errLogin').textContent = ''; $('btnEntrar').disabled = true;
+  const {error} = await sb.auth.signInWithPassword({
+    email: $('email').value.trim().toLowerCase(), password: $('pass').value});
+  $('btnEntrar').disabled = false;
+  if(error) return $('errLogin').textContent = 'No se pudo entrar: ' + error.message;
+  $('errLogin').textContent = ''; location.reload();
+});
+$('btnSalir').addEventListener('click', async () => {await sb.auth.signOut(); location.reload();});
+
+async function entrar(){
+  $('login').hidden = true; $('app').hidden = false;
+  $('sub').textContent = 'cargando…';
+  // Se traen los indices completos una vez: son ~2.900 filas y todas las
+  // personas autenticadas ven lo mismo, asi que no hay nada que filtrar por
+  // usuario. Tenerlos en memoria hace instantanea la busqueda por prefijo.
+  const [rl, rb] = await Promise.all([
+    sb.from('lote').select('*').limit(5000),
+    sb.from('batch').select('*').limit(5000)]);
+  if(rl.error || rb.error){
+    $('sub').textContent = 'error al cargar';
+    return alert('No se pudieron leer los datos: ' + (rl.error||rb.error).message);
+  }
+  L = rl.data; B = rb.data; BIDX = new Map(B.map(x=>[x.normalizado,x]));
+  const cajas = L.reduce((s,x)=>s+(x.cajas||0),0);
+  $('sub').textContent = `${yo.nombre} · ${yo.rol}${yo.puede_firmar?' · puede firmar':''} — `+
+    `${nf(L.length)} lotes · ${nf(cajas)} cajas · ${nf(B.length)} batches`;
+  $('nav').innerHTML = VIEWS.map(([k,n])=>
+    `<button role="tab" data-v="${k}" aria-selected="${k==='consulta'}" onclick="ir('${k}')">${n}</button>`).join('');
+  correr(); pintaStock();
+}
+window.ir = v => {
+  VIEWS.forEach(([k]) => $('v-'+k).hidden = (k!==v));
+  document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-selected', b.dataset.v===v));
+  if(v==='stock') pintaStock();
+};
+
+// ---------------------------------------------------------------- utilidades
+const tiles = a => '<div class="tiles">'+a.map(([k,v])=>
+  `<div class="tile"><b>${typeof v==='number'?nf(v):esc(v)}</b><span>${esc(k)}</span></div>`).join('')+'</div>';
+const emparenta = (a,b) => a && b && a.length>=MIN && b.length>=MIN && (a.startsWith(b)||b.startsWith(a));
+const causasDe = o => (o.causas||[]).concat(o.motivo_detencion?['DETENCION']:[]);
+
+function porque(o){
+  let h = '';
+  const t = causasDe(o).map(k=>`<span class="tag ${k}">${k}</span>`).join('');
+  if(t) h += `<div>${t}</div>`;
+  if(o.motivo_lab) h += `<div><span class="hd">Lab</span> ${esc(o.motivo_lab)}</div>`;
+  if(o.motivo_detencion) h += `<div><span class="hd">Detención</span> ${esc(o.motivo_detencion)}</div>`;
+  if(o.motivo_liberacion) h += `<div class="note"><b>Por qué quedó así:</b> ${esc(o.motivo_liberacion)}</div>`;
+  if(o.historia_remuestreo) h += `<div class="note"><b>Re-muestreo:</b> ${esc(o.historia_remuestreo)}</div>`;
+  if(o.linea) h += `<div class="note">Línea ${esc(o.linea)}`+
+    (o.destino_restringido && o.destino_restringido!=='no' ? ` · destino ${esc(o.destino_restringido)}`:'')+'</div>';
+  if(o.batches_no_conformes) h += `<div class="note">Batches no conformes: ${esc(o.batches_no_conformes)}</div>`;
+  if(o.observaciones) h += `<div class="note">${esc(o.observaciones)}</div>`;
+  return `<div class="why">${h || '<span class="mut">Sin incumplimientos.</span>'}</div>`;
+}
+
+// ---------------------------------------------------------------- packing list
+function resolver(tok){
+  const q = norm(tok); if(!esLote(tok)) return null;
+  const hijos = B.filter(x=>x.normalizado.startsWith(q)).sort((a,b)=>ORD[a.estado]-ORD[b.estado]);
+  if(hijos.length===1 && hijos[0].normalizado===q) return {nivel:'EXACTO', hits:hijos};
+  if(hijos.length) return {nivel:'LOTE BASE', hits:hijos};
+  const padres = B.filter(x=>x.normalizado.length>=MIN && RX_LOTE.test(x.normalizado)
+    && q.startsWith(x.normalizado)).sort((a,b)=>b.normalizado.length-a.normalizado.length);
+  return padres.length ? {nivel:'APROXIMADO', hits:[padres[0]]} : null;
+}
+function estadoLinea(x){
+  if(!x.cand) return 'SIN LOTE';
+  if(!x.r) return 'SIN RESULTADO DE LAB';
+  let e = x.r.hits.map(h=>h.estado).sort((a,b)=>ORD[a]-ORD[b])[0];
+  if(x.r.nivel==='APROXIMADO' && e!=='BLOQUEADO' && e!=='PNC') e = 'SIN RESULTADO DE LAB';
+  return e;
+}
+function detalleLinea(x){
+  if(!x.cand) return '<span class="mut">No hay ningún código con forma de lote. Probablemente es una '+
+    'cabecera, un subtotal o un separador.</span>';
+  if(!x.r) return '<div class="why"><div><b>El laboratorio aún no tiene resultado para este lote.</b></div>'+
+    '<div class="note">No es una liberación: puede ser producción posterior al corte del registro, o el '+
+    'lote está mal escrito. Verificar antes de despachar.</div></div>';
+  const {nivel, hits} = x.r;
+  const relev = hits.filter(b=>b.estado!=='LIBERADO' && b.estado!=='SIN ANALISIS');
+  let h = '';
+  if(nivel==='LOTE BASE') h += `<div class="note">Pegaste el <b>lote base</b>. El laboratorio tiene `+
+    `${hits.length} batch(es)`+(relev.length?`: <b>${relev.length} con incumplimiento o candidato</b>.`:', todos conformes.')+'</div>';
+  if(nivel==='APROXIMADO') h += '<div><b>El laboratorio no tiene resultado para ese batch.</b></div>'+
+    `<div class="note">Abajo va el del lote más cercano (${esc(hits[0].batch)}) solo como referencia. `+
+    '<b>No libera este batch.</b></div>';
+  (relev.length?relev:hits).slice(0,6).forEach(b=>{
+    h += `<div>${hits.length>1?`<span class="mono">${esc(b.batch)}</span> `:''}`+
+      (b.causas||[]).map(k=>`<span class="tag ${k}">${k}</span>`).join('')+
+      (b.motivo_lab?`<span class="hd">Lab</span> ${esc(b.motivo_lab)}`:'')+
+      (b.motivo_detencion?` <span class="hd">Detención</span> ${esc(b.motivo_detencion)}`:'')+
+      (b.remuestreo?`<span class="hd">Re-muestreo</span> ${esc(b.remuestreo)}<div class="note">`+
+        'No libera solo: requiere decisión firmada de Calidad.</div>':'')+
+      (!b.motivo_lab && !b.motivo_detencion && !b.remuestreo
+        ? `<span class="mut">Conforme en ${b.n_muestras} muestra(s).</span>`:'')+'</div>';
+  });
+  h += `<div class="note">${hits.reduce((s,b)=>s+(b.n_muestras||0),0)} muestra(s) de laboratorio`+
+    (hits[0].ultima_muestra?` · última ${esc(hits.map(b=>b.ultima_muestra).sort().pop())}`:'')+'</div>';
+  return `<div class="why">${h}</div>`;
+}
+window.correr = () => {
+  const out = [];
+  for(const linea of $('pl').value.split(/\r?\n/)){
+    if(!linea.trim()) continue;
+    const toks = linea.split(/[\t,;|\s]+/).filter(t=>t.length>=MIN).filter(esLote);
+    let r=null, cand='';
+    for(const t of toks){const m=resolver(t); if(m){r=m; cand=t; break;}}
+    if(!r) cand = toks[0]||'';
+    out.push({linea, cand, r});
+  }
+  ULT = out;
+  if(!out.length){$('k-consulta').innerHTML=''; $('r-consulta').innerHTML=
+    '<div class="card empty">Pega un packing list y presiona Analizar.</div>'; return;}
+  const c = {};
+  out.forEach(x=>{const e=estadoLinea(x); c[e]=(c[e]||0)+1;});
+  $('k-consulta').innerHTML = tiles([['Líneas',out.length],['Bloqueadas',c['BLOQUEADO']||0],
+    ['PNC',c['PNC']||0],['Liberadas',c['LIBERADO']||0],['Candidatas',c['CANDIDATO A LIBERAR']||0],
+    ['Sin resultado',c['SIN RESULTADO DE LAB']||0],['Sin lote',c['SIN LOTE']||0]]);
+  $('r-consulta').innerHTML = '<div class="tw"><table class="wide"><thead><tr><th>Línea</th>'+
+    '<th>Lote detectado</th><th>Match</th><th>Estado</th><th>Qué dice el laboratorio</th>'+
+    '</tr></thead><tbody>'+ out.map((x,i)=>{
+      const e = estadoLinea(x);
+      return `<tr class="clic" onclick="verLinea(${i})"><td class="mut" style="max-width:250px">`+
+        `<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.linea)}">`+
+        `${esc(x.linea)}</div></td><td class="mono">${x.cand?esc(x.cand):'&mdash;'}</td>`+
+        `<td class="mut">${x.r?esc(x.r.nivel):'&mdash;'}</td><td>${chip(e)}</td>`+
+        `<td class="pq">${detalleLinea(x)}</td></tr>`;}).join('')+'</tbody></table></div>';
+};
+$('pl').addEventListener('keydown', e => {
+  if((e.ctrlKey||e.metaKey) && e.key==='Enter'){e.preventDefault(); correr();}});
+
+// ---------------------------------------------------------------- estado de stock
+const GRUPO = {BLOQ:['BLOQUEADO','PNC'], CAND:['CANDIDATO A LIBERAR'], SIN:['SIN ANALISIS'],
+  TODOS:['BLOQUEADO','PNC','CANDIDATO A LIBERAR','SIN ANALISIS']};
+window.toggle = k => {sel.has(k)?sel.delete(k):sel.add(k); pintaStock();};
+window.pintaStock = () => {
+  const g = GRUPO[$('fe').value] || GRUPO.BLOQ;
+  let base = L.filter(o=>g.includes(o.estado));
+  if($('soloStock').checked) base = base.filter(o=>o.en_stock);
+  const f = $('f2').value.toLowerCase().trim();
+  if(f) base = base.filter(o=>[o.lote,o.motivo_lab,o.motivo_detencion,(o.bodegas||[]).join(' '),
+    (o.productos||[]).join(' '),(o.clientes||[]).join(' '),o.observaciones].join(' ').toLowerCase().includes(f));
+  $('chips').innerHTML = CAUSAS.map(c=>{
+    const m = base.filter(o=>causasDe(o).concat(o.causas_remuestreo||[]).includes(c.k));
+    return `<button class="fchip ${c.c}" aria-pressed="${sel.has(c.k)}" onclick="toggle('${c.k}')">`+
+      `<span class="nm"><i class="dot"></i>${c.nm}</span>`+
+      `<span class="vl">${nf(m.reduce((s,x)=>s+(x.cajas||0),0))}</span>`+
+      `<span class="sb">cajas · ${m.length} lotes</span></button>`;}).join('');
+  const d = sel.size ? base.filter(o=>causasDe(o).concat(o.causas_remuestreo||[]).some(k=>sel.has(k))) : base;
+  $('k-stock').innerHTML = tiles([['Lotes',d.length],['Cajas',d.reduce((s,x)=>s+(x.cajas||0),0)],
+    ['Kg netos',Math.round(d.reduce((s,x)=>s+Number(x.kg||0),0))]]);
+  $('r-stock').innerHTML = tabla(d.sort((a,b)=>(b.cajas||0)-(a.cajas||0)));
+};
+window.pintaBusca = () => {
+  const f = $('f3').value.toLowerCase().trim();
+  if(f.length<2) return $('r-buscar').innerHTML='<div class="card empty">Escribe al menos 2 caracteres.</div>';
+  const d = L.filter(o=>[o.lote,o.normalizado,(o.productos||[]).join(' '),(o.clientes||[]).join(' '),
+    (o.bodegas||[]).join(' ')].join(' ').toLowerCase().includes(f))
+    .sort((a,b)=>(b.cajas||0)-(a.cajas||0));
+  $('r-buscar').innerHTML = d.length ? tabla(d) : '<div class="card empty">Sin coincidencias.</div>';
+};
+function tabla(d){
+  if(!d.length) return '<div class="card empty">Sin resultados con estos filtros.</div>';
+  return '<div class="tw"><table class="wide"><thead><tr><th>Lote</th><th>Estado</th><th>Por qué</th>'+
+    '<th>Producto</th><th>Cliente</th><th>Bodega</th><th style="text-align:right">Cajas</th>'+
+    '<th style="text-align:right">Kg</th></tr></thead><tbody>'+ d.map(o=>
+    `<tr class="clic" onclick="verLote('${esc(o.normalizado)}')"><td class="mono">${esc(o.lote)}`+
+    (o.en_stock?'':'<div class="mut">no está en bodega</div>')+`</td><td>${chip(o.estado)}</td>`+
+    `<td class="pq">${porque(o)}</td><td class="sec">${esc((o.productos||[]).join(' / ').slice(0,80))}</td>`+
+    `<td class="sec">${esc((o.clientes||[]).join(' / ').slice(0,50))}</td>`+
+    `<td class="sec">${esc((o.bodegas||[]).join(' / '))}</td>`+
+    `<td class="n">${nf(o.cajas)}</td><td class="n">${nf(Math.round(o.kg||0))}</td></tr>`).join('')+
+    '</tbody></table></div>';
+}
+
+// ---------------------------------------------------------------- detalle
+window.cerrar = () => {$('bd').classList.remove('on'); $('dw').classList.remove('on');};
+addEventListener('keydown', e => {if(e.key==='Escape') cerrar();});
+function abrir(tit, sub, est, html){
+  $('dh').innerHTML = `<div class="t"><b>${esc(tit)}</b><span class="mut">${esc(sub)}</span></div>`+
+    (est?chip(est):'')+'<button class="icobtn" onclick="cerrar()">&times;</button>';
+  $('db').innerHTML = html; $('bd').classList.add('on'); $('dw').classList.add('on'); $('dw').scrollTop=0;
+}
+const grp = (t,c) => `<div class="grp"><h3>${t}</h3>${c||'<div class="mut">Sin datos.</div>'}</div>`;
+const kv = a => '<dl class="kv">'+a.filter(x=>x[1]!=null&&x[1]!=='')
+  .map(x=>`<dt>${esc(x[0])}</dt><dd>${x[1]}</dd>`).join('')+'</dl>';
+const mini = (h,r) => r.length ? '<table class="mini"><thead><tr>'+h.map(x=>`<th>${x}</th>`).join('')+
+  '</tr></thead><tbody>'+r.map(f=>'<tr>'+f.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('')+'</tbody></table>' : '';
+
+window.verLote = n => {
+  const o = L.find(x=>x.normalizado===n); if(!o) return;
+  const bs = B.filter(x=>emparenta(x.normalizado, n));
+  abrir(o.lote, (o.linea||'')+(o.en_stock?` · ${nf(o.cajas)} cajas`:' · no está en bodega'), o.estado,
+    grp('Por qué está así', porque(o) + (o.evidencia?`<div class="note">Evidencia: ${esc(o.evidencia)}</div>`:''))+
+    grp(`Batches del laboratorio (${bs.length})`, mini(['Batch','Estado','Detalle','Muestras'],
+      bs.map(b=>[`<span class="mono">${esc(b.batch)}</span>`, chip(b.estado),
+        esc(b.motivo_lab||b.remuestreo||b.motivo_detencion||'conforme'), b.n_muestras])))+
+    grp('En bodega', o.en_stock ? kv([['Cajas',nf(o.cajas)],['Kg',nf(Math.round(o.kg||0))],
+      ['Bodegas',esc((o.bodegas||[]).join(' / '))],['Clientes',esc((o.clientes||[]).join(' / '))],
+      ['Productos',esc((o.productos||[]).join(' / '))]]) : '<div class="mut">No aparece en ningún stock.</div>')+
+    (o.liberacion_declarada ? grp('Liberación declarada', kv([['Fecha',esc(o.liberacion_declarada)],
+      ['Mercados',esc((o.mercados_liberados||[]).join('/'))],['Fuente',esc(o.fuente_liberacion)]])) : ''));
+};
+window.verLinea = i => {
+  const x = ULT[i]; if(!x) return;
+  if(x.r && x.r.hits.length===1){
+    const b = x.r.hits[0];
+    return abrir(b.batch, `${b.linea||''} · ${b.n_muestras} muestra(s)`, b.estado,
+      grp('Veredicto del laboratorio', detalleLinea(x))+
+      grp('Muestra', kv([['Presentación',esc(b.presentacion)],['Tipo',esc(b.tipo)],
+        ['Observación',esc(b.observacion_lab)],['Última',esc(b.ultima_muestra)]]))+
+      (b.lote_base ? grp('Lote en bodega',
+        `<button class="btn ghost" onclick="verLote('${esc(b.lote_base)}')">Ver ${esc(b.lote_base)}</button>`) : ''));
+  }
+  abrir(x.cand||'Sin lote', 'Línea del packing list', estadoLinea(x),
+    grp('Línea pegada', `<div class="mut mono">${esc(x.linea)}</div>`)+
+    grp('Resultado', detalleLinea(x)));
+};
+
+arranque();
+</script></body></html>
