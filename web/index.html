@@ -296,14 +296,13 @@ async function entrar(){
   // Se traen los indices completos una vez: son ~2.900 filas y todas las
   // personas autenticadas ven lo mismo, asi que no hay nada que filtrar por
   // usuario. Tenerlos en memoria hace instantanea la busqueda por prefijo.
-  const [rl, rb] = await Promise.all([
-    sb.from('lote').select('*').limit(5000),
-    sb.from('batch').select('*').limit(5000)]);
-  if(rl.error || rb.error){
+  try {
+    [L, B] = await Promise.all([traerTodo('lote'), traerTodo('batch')]);
+  } catch(e) {
     $('sub').textContent = 'error al cargar';
-    return alert('No se pudieron leer los datos: ' + (rl.error||rb.error).message);
+    return alert('No se pudieron leer los datos: ' + e.message);
   }
-  L = rl.data; B = rb.data; BIDX = new Map(B.map(x=>[x.normalizado,x]));
+  BIDX = new Map(B.map(x=>[x.normalizado,x]));
   const cajas = L.reduce((s,x)=>s+(x.cajas||0),0);
   $('sub').textContent = `${yo.nombre} · ${yo.rol}${yo.puede_firmar?' · puede firmar':''} — `+
     `${nf(L.length)} lotes · ${nf(cajas)} cajas · ${nf(B.length)} batches`;
@@ -318,6 +317,20 @@ window.ir = v => {
 };
 
 // ---------------------------------------------------------------- utilidades
+// Supabase corta las respuestas de la API en 1000 filas y .limit() no sobrepasa
+// ese tope del servidor: hay que pedir por paginas. Sin esto llegaban 1000 de
+// los 2381 batches y todo lo que faltaba aparecia como "sin resultado de lab".
+async function traerTodo(tabla, pagina = 1000){
+  const filas = [];
+  for(let desde = 0; ; desde += pagina){
+    const {data, error} = await sb.from(tabla).select('*')
+      .order('normalizado', {ascending:true}).range(desde, desde + pagina - 1);
+    if(error) throw error;
+    filas.push(...data);
+    if(data.length < pagina) return filas;
+  }
+}
+
 const tiles = a => '<div class="tiles">'+a.map(([k,v])=>
   `<div class="tile"><b>${typeof v==='number'?nf(v):esc(v)}</b><span>${esc(k)}</span></div>`).join('')+'</div>';
 const emparenta = (a,b) => a && b && a.length>=MIN && b.length>=MIN && (a.startsWith(b)||b.startsWith(a));
