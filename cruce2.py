@@ -769,7 +769,12 @@ for l in universo:
     elif len(dets):
         etiqueta = dets["LOTE"].iloc[0]
     else:
-        etiqueta = str(rows_lab["LOTE SW"].iloc[0]).strip().split("*")[0] if len(rows_lab) else l
+        # rows_lab trae tambien muestras emparentadas del lote padre: si se toma
+        # la primera al azar, la etiqueta puede ser la de OTRO lote. Se prefiere
+        # la muestra cuyo codigo normalizado es exactamente este.
+        _ex = rows_lab[rows_lab["_L"] == l]
+        _f = _ex if len(_ex) else rows_lab
+        etiqueta = str(_f["LOTE SW"].iloc[0]).strip().split("*")[0] if len(_f) else l
     if sospechoso(etiqueta):
         obs.append("El codigo de lote no parece un lote real (placeholder o texto libre): "
                    "revisar el origen en Fishken, agrupa cajas que no comparten lote")
