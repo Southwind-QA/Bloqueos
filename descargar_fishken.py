@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Descarga los reportes de stock desde Fishken, sin abrir el navegador.
 
-    $env:FISHKEN_USUARIO='...'; $env:FISHKEN_CLAVE='...'
+    Requiere FISHKEN_USER y FISHKEN_PWD en las variables de entorno.
     python descargar_fishken.py            # todas las bodegas en un archivo
     python descargar_fishken.py C1 C2 C3   # una bodega por archivo
 
@@ -39,10 +39,14 @@ BODEGAS = {
     "C7": "INVENTARIO PT CAMARA CONG 1", "C8": "INVENTARIO PT CAMARA CONG 2",
 }
 
-USUARIO = os.environ.get("FISHKEN_USUARIO")
-CLAVE = os.environ.get("FISHKEN_CLAVE")
+# Se aceptan los dos juegos de nombres: los que ya estaban configurados en el
+# equipo y los que proponia este script. Aqui solo aparecen los NOMBRES; los
+# valores no se imprimen ni se registran en ninguna parte.
+USUARIO = os.environ.get("FISHKEN_USER") or os.environ.get("FISHKEN_USUARIO")
+CLAVE = os.environ.get("FISHKEN_PWD") or os.environ.get("FISHKEN_CLAVE")
 if not USUARIO or not CLAVE:
-    sys.exit("Faltan FISHKEN_USUARIO y FISHKEN_CLAVE en las variables de entorno.\n"
+    sys.exit("Faltan las credenciales en las variables de entorno.\n"
+             "Se buscan FISHKEN_USER y FISHKEN_PWD (o FISHKEN_USUARIO y FISHKEN_CLAVE).\n"
              "No las escribas en el script ni las pases por linea de comandos.")
 
 
@@ -78,8 +82,13 @@ datos = tokens(r.text, "la pagina de login")
 datos.update({"usuario": USUARIO, "password": CLAVE, "logon": "Ingresar"})
 r = s.post(LOGIN, data=datos, timeout=60)
 r.raise_for_status()
-if "logon" in r.text and "password" in r.text.lower():
-    sys.exit("El login no prospero: volvio a la pantalla de acceso. Revisa las credenciales.")
+# Un login correcto NO redirige: devuelve la misma pantalla de acceso con un
+# window.open('Principal.aspx') arriba, que es lo que en el navegador abre la
+# segunda pestania. Buscar la ausencia del formulario da un falso negativo.
+if "Principal.aspx" not in r.text:
+    sys.exit("El login no prospero: la respuesta no abre Principal.aspx. "
+             "Revisa las credenciales o si la pantalla de acceso cambio.")
+s.get(BASE + "/Principal.aspx", timeout=60)   # el navegador la abre; se replica
 
 pedidas = [a.upper() for a in sys.argv[1:]] or ["T0"]
 desconocidas = [b for b in pedidas if b not in BODEGAS]
