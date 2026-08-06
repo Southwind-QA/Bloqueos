@@ -87,21 +87,24 @@ with psycopg.connect(URL, autocommit=False) as cx:
     with cx.cursor() as cur:
         cur.execute("set search_path = bloqueos, public")
 
-        cur.execute("select id from criterio_version where hasta is null "
+        # La version de criterios es DECLARADA: la registra un administrador, no
+        # el motor. Si el motor pudiera escribirla, una corrida podria cambiar la
+        # norma contra la que se evalua.
+        cur.execute("select id, huella from criterio_version where hasta is null "
                     "order by desde desc limit 1")
         fila = cur.fetchone()
         if not fila:
-            cur.execute(
-                "insert into criterio_version (huella, parametros, motivo) "
-                "values (%s, %s, %s) returning id",
-                (config.huella_criterios(),
-                 psycopg.types.json.Jsonb({"lim_ram": config.LIM_RAM,
-                                           "lim_nitrito": config.LIM_NITRITO,
-                                           "min_lote": config.MIN_LOTE}),
-                 "Primera carga: criterios vigentes al migrar desde las planillas"))
-            fila = cur.fetchone()
-            print("  criterio_version creada:", fila[0])
-        criterio_id = fila[0]
+            sys.exit("No hay una version de criterios vigente en la base. "
+                     "Registrala aplicando la migracion "
+                     "20260806120400_bloqueos_criterio_inicial.sql")
+        criterio_id, huella_db = fila
+        if huella_db.strip() != config.huella_criterios().strip():
+            print("  AVISO: los criterios de config.py no coinciden con los de la base.")
+            print("         base   :", huella_db)
+            print("         config :", config.huella_criterios())
+            print("         Registra la version nueva antes de cargar, o los datos")
+            print("         quedaran atribuidos a una norma que no es la que se aplico.")
+            sys.exit(1)
 
         cur.execute("insert into corrida (criterio_ver, fuentes) values (%s, %s) "
                     "returning id", (criterio_id, psycopg.types.json.Jsonb(fuentes)))
