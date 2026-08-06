@@ -48,6 +48,12 @@ end $$;
 -- ------------------------------------------------------- derivado: solo el job
 -- El motor corre con un rol de servicio propio. Nadie mas escribe aca, y el
 -- job no aparece en ninguna policy de las tablas declaradas.
+-- El motor NO usa service_role: esa clave salta RLS y podria escribir sobre lo
+-- declarado. Usa un rol propio, sin login hasta que se le asigne credencial:
+--
+--   alter role motor_bloqueos login password '<clave>';
+--
+-- Ese paso se hace una vez, a mano, fuera del repositorio.
 create role motor_bloqueos nologin;
 grant usage on schema bloqueos to motor_bloqueos;
 grant select, insert, update, delete on lote, batch, muestra, stock_lote

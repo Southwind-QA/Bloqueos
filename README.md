@@ -86,7 +86,7 @@ cruce2.py        el motor: normaliza, evalúa y escribe el Excel
 gen_html.py      genera la página de consulta a partir del Excel
 actualizar.py    corre los dos pasos en orden
 valida.py        validador de paletas de color (port del de la skill dataviz)
-sql/             esquema y permisos para el despliegue en Postgres/Supabase
+supabase/        migraciones del esquema y los permisos (Supabase las aplica al mergear a main)
 historial/       snapshot y log de cambios entre corridas (dato, no código)
 ```
 
@@ -107,6 +107,6 @@ ve igual que recibir 60 resultados conformes.
 
 ## Despliegue
 
-Ver [`PROPUESTA WEB.md`](PROPUESTA%20WEB.md) y `sql/`. Lo importante del esquema:
+Ver [`PROPUESTA WEB.md`](PROPUESTA%20WEB.md) y `supabase/migrations/`. Lo importante del esquema:
 el rol del motor **no tiene permiso de escritura** sobre detenciones, decisiones
 ni criterios. Una corrida mala no puede borrar una decisión firmada.
