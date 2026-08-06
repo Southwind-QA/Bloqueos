@@ -188,6 +188,9 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
           <button class="btn" onclick="correr()">Analizar</button>
           <button class="btn ghost" onclick="document.getElementById('pl').value='';correr()">Limpiar</button>
           <span class="mut">o Ctrl + Enter</span>
+          <div class="spacer"></div>
+          <button class="btn ghost" id="btnCopiarPL" hidden onclick="copiar('pl')">Copiar tabla</button>
+          <button class="btn ghost" id="btnExcelPL" hidden onclick="excel('pl')">Descargar Excel</button>
         </div>
       </div>
       <div id="k-consulta"></div><div id="r-consulta"></div>
@@ -215,6 +218,11 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
             Solo lo que está en bodega</label>
         </div>
         <div class="chips" id="chips"></div>
+        <div class="acts">
+          <button class="btn ghost" onclick="copiar('stock')">Copiar tabla</button>
+          <button class="btn ghost" onclick="excel('stock')">Descargar Excel</button>
+          <span class="mut" id="avisoCopia"></span>
+        </div>
       </div>
       <div id="k-stock"></div><div id="r-stock"></div>
     </section>
@@ -249,7 +257,7 @@ const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
              'LIBERADO POR DECISION':4,'LIBERADO':5};
 const VIEWS = [['consulta','Consulta con packing list'],['stock','Estado de stock'],['buscar','Buscar']];
 
-let L = [], B = [], BIDX = new Map(), yo = null, sel = new Set(), ULT = [];
+let L = [], B = [], BIDX = new Map(), yo = null, sel = new Set(), ULT = [], ULT_STOCK = [];
 
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const nf = n => Number(n||0).toLocaleString('es-CL');
@@ -407,6 +415,7 @@ window.correr = () => {
     out.push({linea, cand, r});
   }
   ULT = out;
+  $('btnCopiarPL').hidden = $('btnExcelPL').hidden = !out.length;
   if(!out.length){$('k-consulta').innerHTML=''; $('r-consulta').innerHTML=
     '<div class="card empty">Pega un packing list y presiona Analizar.</div>'; return;}
   const c = {};
@@ -447,7 +456,8 @@ window.pintaStock = () => {
   const d = sel.size ? base.filter(o=>causasDe(o).concat(o.causas_remuestreo||[]).some(k=>sel.has(k))) : base;
   $('k-stock').innerHTML = tiles([['Lotes',d.length],['Cajas',d.reduce((s,x)=>s+(x.cajas||0),0)],
     ['Kg netos',Math.round(d.reduce((s,x)=>s+Number(x.kg||0),0))]]);
-  $('r-stock').innerHTML = tabla(d.sort((a,b)=>(b.cajas||0)-(a.cajas||0)));
+  ULT_STOCK = d.sort((a,b)=>(b.cajas||0)-(a.cajas||0));
+  $('r-stock').innerHTML = tabla(ULT_STOCK);
 };
 window.pintaBusca = () => {
   const f = $('f3').value.toLowerCase().trim();
@@ -470,6 +480,64 @@ function tabla(d){
     `<td class="n">${nf(o.cajas)}</td><td class="n">${nf(Math.round(o.kg||0))}</td></tr>`).join('')+
     '</tbody></table></div>';
 }
+
+// ---------------------------------------------------------------- exportar
+// Dos salidas de la misma tabla: al portapapeles en TSV, que es lo que Excel
+// entiende al pegar, y a archivo en CSV con BOM y punto y coma, que es como
+// Excel en espanol abre sin pedir asistente de importacion.
+function filasExportables(vista){
+  if(vista === 'pl'){
+    const cab = ['LINEA','LOTE DETECTADO','MATCH','ESTADO','CAUSAS','MOTIVO LAB',
+                 'MOTIVO DETENCION','RE-MUESTREO','MUESTRAS','ULTIMA MUESTRA','PRESENTACION'];
+    const filas = [];
+    for(const x of ULT){
+      const e = estadoLinea(x);
+      if(!x.r){filas.push([x.linea, x.cand, '', e, '', '', '', '', '', '', '']); continue;}
+      for(const b of x.r.hits)
+        filas.push([x.linea, b.batch, x.r.nivel, b.estado, (b.causas||[]).join('+'),
+                    b.motivo_lab, b.motivo_detencion, b.remuestreo, b.n_muestras,
+                    b.ultima_muestra, b.presentacion]);
+    }
+    return {cab, filas, nombre:'packing_list_vs_lab'};
+  }
+  const cab = ['LOTE','ESTADO','CAUSAS','MOTIVO LAB','MOTIVO DETENCION','MOTIVO LIBERACION',
+               'LINEA','DESTINO','EN BODEGA','BODEGAS','PRODUCTOS','CLIENTES','CAJAS','KG'];
+  return {cab, nombre:'estado_de_stock', filas: ULT_STOCK.map(o=>[
+    o.lote, o.estado, causasDe(o).join('+'), o.motivo_lab, o.motivo_detencion,
+    o.motivo_liberacion, o.linea, o.destino_restringido, o.en_stock?'SI':'NO',
+    (o.bodegas||[]).join(' / '), (o.productos||[]).join(' / '), (o.clientes||[]).join(' / '),
+    o.cajas, Math.round(o.kg||0)])};
+}
+const limpiaCelda = v => String(v==null?'':v).replace(/[	
+]+/g,' ').trim();
+function aviso(t){
+  const el = $('avisoCopia'); if(!el) return;
+  el.textContent = t; setTimeout(()=>{el.textContent='';}, 4000);
+}
+window.copiar = async vista => {
+  const {cab, filas} = filasExportables(vista);
+  if(!filas.length) return aviso('No hay nada que copiar.');
+  const tsv = [cab.join('	'), ...filas.map(f=>f.map(limpiaCelda).join('	'))].join('
+');
+  try {
+    await navigator.clipboard.writeText(tsv);
+    aviso(`${filas.length} filas copiadas. Pega directo en Excel.`);
+  } catch {
+    aviso('El navegador no permitio copiar. Usa Descargar Excel.');
+  }
+};
+window.excel = vista => {
+  const {cab, filas, nombre} = filasExportables(vista);
+  if(!filas.length) return aviso('No hay nada que exportar.');
+  const q = v => '"' + limpiaCelda(v).replace(/"/g,'""') + '"';
+  const csv = [cab.map(q).join(';'), ...filas.map(f=>f.map(q).join(';'))].join('
+');
+  const hoy = new Date().toISOString().slice(0,10);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `${nombre}_${hoy}.csv`; a.click(); URL.revokeObjectURL(a.href);
+  aviso(`${filas.length} filas exportadas.`);
+};
 
 // ---------------------------------------------------------------- detalle
 window.cerrar = () => {$('bd').classList.remove('on'); $('dw').classList.remove('on');};
