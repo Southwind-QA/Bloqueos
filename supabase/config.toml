@@ -1,0 +1,3 @@
+# Sin este archivo la integracion de GitHub no reconoce la carpeta como un
+# proyecto Supabase y no aplica nada de supabase/migrations/.
+project_id = "qfxoccnlxvbumynfrgqx"
