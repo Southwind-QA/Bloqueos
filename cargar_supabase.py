@@ -124,9 +124,9 @@ with psycopg.connect(URL, autocommit=False) as cx:
                  liberacion_declarada, mercados_liberados, fuente_liberacion, en_stock,
                  bodegas, productos, clientes, cajas, kg, piezas,
                  batches_con_resultado, batches_no_conformes, n_muestras, ultima_muestra,
-                 observaciones, corrida_id)
+                 wps, observaciones, corrida_id)
                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             [(txt(r["LOTE"]), txt(r["LOTE (normalizado)"]), txt(r["ESTADO"]),
               txt(r["ORIGEN DEL BLOQUEO"]), lista(r["CAUSAS LAB"]),
               lista(r["CAUSAS CON REMUESTREO CONFORME"]), txt(r["MOTIVO - LABORATORIO"]),
@@ -142,19 +142,21 @@ with psycopg.connect(URL, autocommit=False) as cx:
               ent(r["CAJAS EN STOCK"]), 0, 0,
               ent(r["BATCHES CON RESULTADO"]), txt(r["BATCHES NO CONFORMES"]),
               ent(r["N MUESTRAS LAB"]), fecha(r["ULTIMA MUESTRA LAB"]),
+              num(r["WPS MIN (%)"]),
               txt(r["OBSERVACIONES"]), corrida) for _, r in res.iterrows()])
         print("  lote:", len(res))
 
         cur.executemany(
             """insert into batch (batch, normalizado, lote_base, estado, causas,
-                 motivo_lab, motivo_detencion, remuestreo, listeria, ram_max, nitrito,
+                 motivo_lab, motivo_detencion, remuestreo, listeria, ram_max, nitrito, wps,
                  n_muestras, primera_muestra, ultima_muestra, linea, tipo, presentacion,
                  observacion_lab, liberacion_declarada, mercados_liberados, corrida_id)
-               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             [(txt(r["BATCH"]), txt(r["BATCH (normalizado)"]), txt(r["LOTE BASE EN STOCK"]),
               txt(r["ESTADO"]), lista(r["CAUSAS LAB"]), txt(r["MOTIVO - LABORATORIO"]),
               txt(r["MOTIVO - DETENCION"]), txt(r["RE-MUESTREO CONFORME"]),
               txt(r["LISTERIA"]), num(r["RAM MAX (UFC/g)"]), num(r["NITRITO PROMEDIO (ppm)"]),
+              num(r["WPS (%)"]),
               ent(r["N MUESTRAS"]), fecha(r["PRIMERA MUESTRA"]), fecha(r["ULTIMA MUESTRA"]),
               txt(r["LINEA"]), txt(r["TIPO"]), txt(r["PRESENTACION"]),
               txt(r["OBSERVACION LAB"]), fecha(r["LIBERACION DECLARADA"]),

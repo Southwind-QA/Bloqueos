@@ -19,7 +19,23 @@ BASE = os.environ.get("BLOQUEOS_DIR") or os.path.dirname(os.path.abspath(__file_
 
 # ------------------------------------------------------------------ limites
 LIM_RAM = 100_000          # UFC/g. Se supera -> bloquea. Aplica a toda linea.
-LIM_NITRITO = 85           # ppm. Por debajo -> bloquea. Solo donde aplica (ver abajo).
+
+# Binomio WPS / nitrito. Ninguno de los dos por si solo decide: lo que controla
+# Listeria en el ahumado es la combinacion de sal en fase acuosa y nitrito.
+#
+#   WPS         nitrito < 85    85 <= nitrito <= 100    nitrito > 100
+#   > 3,5       BLOQUEA         libera                  libera
+#   3 a 3,5     BLOQUEA         BLOQUEA                 libera
+#   < 3         BLOQUEA         BLOQUEA                 libera
+#
+# Se reduce a: libera si (nitrito >= 85 y WPS > 3,5) o nitrito > 100.
+#
+# Escrito asi, el caso sin WPS medido se resuelve solo y hacia el lado correcto:
+# con nitrito bajo 100 no se puede acreditar que el WPS acompanie, asi que no
+# libera. No se exime un criterio por falta de informacion.
+LIM_NITRITO = 85           # ppm. Por debajo bloquea SIEMPRE, aunque el WPS sobre.
+NIT_BINOMIO = 100          # ppm. Por encima libera sin importar el WPS.
+WPS_MIN = 3.5              # % de sal en fase acuosa. Hay que superarlo, no igualarlo.
 
 # Largo minimo para aceptar que dos codigos de lote son el mismo a distinto
 # nivel de detalle. Por debajo de esto un prefijo calza con cualquier cosa:
@@ -29,8 +45,9 @@ MIN_LOTE = 8
 # ------------------------------------------------------------------ criterios
 #
 #   RAM       toda linea, sin excepciones.
-#   NITRITO   solo linea refrigerada, MAS bacon y wheel: salen congelados de
-#             planta pero se venden refrigerados en destino.
+#   NITRITO   binomio con el WPS (ver arriba). Solo linea refrigerada, MAS bacon
+#             y wheel: salen congelados de planta pero se venden refrigerados
+#             en destino.
 #   LISTERIA  linea refrigerada siempre; linea congelada solo si el destino es
 #             EE.UU. o Costa Rica. Si el destino no se puede determinar, se
 #             aplica igual: no se exime un criterio por falta de informacion.
@@ -105,6 +122,7 @@ def ruta(*partes):
 # que permite distinguir "cambio el resultado" de "cambiamos la norma".
 def huella_criterios():
     return (f"listeria=refrigerada+congelada(EEUU|CostaRica); ram>{LIM_RAM}; "
-            f"nitrito<{LIM_NITRITO} en refrigerada y en bacon/wheel; "
+            f"binomio wps/nitrito en refrigerada y en bacon/wheel: libera si "
+            f"(nitrito>={LIM_NITRITO} y wps>{WPS_MIN}) o nitrito>{NIT_BINOMIO}; "
             "vigencia=ultimo resultado que cubre el criterio; "
             "registro operativo=bloquea por su motivo hasta liberacion declarada")

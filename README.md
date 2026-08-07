@@ -56,8 +56,21 @@ visible en el diff y no haya que leer el motor.
 | Criterio | Dónde aplica |
 |---|---|
 | **RAM** > 100.000 UFC/g | Toda línea, sin excepciones |
-| **Nitrito** < 85 ppm | Línea refrigerada, **más bacon y wheel** (salen congelados de planta pero se venden refrigerados en destino) |
+| **Binomio WPS/nitrito** | Línea refrigerada, **más bacon y wheel** (salen congelados de planta pero se venden refrigerados en destino) |
 | **Listeria** presencia | Línea refrigerada siempre; línea congelada solo si el destino es **EE.UU. o Costa Rica** |
+
+El nitrito no decide solo. Lo que controla *Listeria* en el ahumado es la
+combinación de sal en fase acuosa y nitrito:
+
+| WPS | nitrito < 85 | 85 ≤ nitrito ≤ 100 | nitrito > 100 |
+|---|---|---|---|
+| **> 3,5 %** | Bloquea | Libera | Libera |
+| **3 – 3,5 %** | Bloquea | Bloquea | Libera |
+| **< 3 %** | Bloquea | Bloquea | Libera |
+
+Es decir: **libera si (nitrito ≥ 85 y WPS > 3,5) o nitrito > 100**. Escrita así,
+la regla resuelve sola el caso sin WPS medido y hacia el lado correcto: con
+nitrito bajo 100 no se puede acreditar el binomio, así que no libera.
 
 Los criterios que puede levantar un motivo escrito a mano en el registro
 operativo también viven en `config.py`, en `MOTIVOS_LAB`. Ahí se traduce el texto

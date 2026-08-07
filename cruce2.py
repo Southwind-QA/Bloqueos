@@ -25,11 +25,14 @@ OUT = config.ruta(config.ARCH_SALIDA)
 
 LIM_RAM = config.LIM_RAM
 LIM_NITRITO = config.LIM_NITRITO
+NIT_BINOMIO = config.NIT_BINOMIO
+WPS_MIN = config.WPS_MIN
 MIN_LOTE = config.MIN_LOTE
 
 LM = ["LM1", "LM2", "LM3", "LM4", "LM5"]
 RAM = ["RAM1", "RAM2", "RAM3", "RAM4", "RAM5"]
 NIT = ["NITRITO", "NITRITO.1", "NITRITO.2"]
+WPS = ["WPS1", "WPS2", "WPS3"]
 
 
 def norm(s):
@@ -106,10 +109,20 @@ def carga_lab(f):
     d = d[d["LOTE SW"].notna()].copy()
     cols = list(d.columns)
 
-    nit = [c for c in cols if re.fullmatch(r"NITRITO(\.\d+)?", str(c).strip().upper())]
-    tope = max(cols.index(c) for c in nit) if nit else -1
-    prom = next((c for c in cols
-                 if str(c).strip().upper().startswith("PROMEDIO") and cols.index(c) > tope), None)
+    # El bloque fisicoquimico va %SAL, %H, WPS, NITRITO, cada uno con sus
+    # replicas y su Promedio inmediatamente despues. Por eso el promedio de cada
+    # magnitud es la primera columna PROMEDIO que aparece tras su ultima replica.
+    def bloque(nombre):
+        ix = [i for i, c in enumerate(cols)
+              if re.fullmatch(rf"{nombre}(\d|\.\d+)?", str(c).strip().upper())]
+        if not ix:
+            return [], None
+        p = next((c for i, c in enumerate(cols)
+                  if str(c).strip().upper().startswith("PROMEDIO") and i > max(ix)), None)
+        return [cols[i] for i in ix], p
+
+    nit, prom = bloque("NITRITO")
+    wps, promw = bloque("WPS")
     ar = next((c for c in cols if "A/R" in str(c).upper()), None)
 
     out = pd.DataFrame(index=d.index)
@@ -122,6 +135,9 @@ def carga_lab(f):
     for i, c in enumerate(NIT):
         out[c] = d[nit[i]] if i < len(nit) else None
     out["NITRITO PROMEDIO"] = d[prom] if prom else None
+    for i, c in enumerate(WPS):
+        out[c] = d[wps[i]] if i < len(wps) else None
+    out["WPS PROMEDIO"] = d[promw] if promw else None
     out["A/R Nitrito"] = d[ar] if ar else ""
     out["FUENTE LAB"] = hojas[0]
     out["_ARCHIVO"] = n
@@ -146,6 +162,8 @@ lab["_RAM_MAX"] = lab[RAM].apply(pd.to_numeric, errors="coerce").max(axis=1)
 _n = lab[NIT].apply(pd.to_numeric, errors="coerce")
 lab["_NIT"] = pd.to_numeric(lab["NITRITO PROMEDIO"], errors="coerce").fillna(_n.mean(axis=1))
 lab["_NIT_MIN"] = _n.min(axis=1)
+_w = lab[WPS].apply(pd.to_numeric, errors="coerce")
+lab["_WPS"] = pd.to_numeric(lab["WPS PROMEDIO"], errors="coerce").fillna(_w.mean(axis=1))
 lab["_AR"] = lab["A/R Nitrito"].astype(str).str.strip().str.upper().replace("NAN", "")
 
 # ------------------------------------------------- linea de proceso
@@ -273,19 +291,59 @@ det["_ESTADO"] = det["ESTADO"].astype(str).str.strip().str.upper()
 det["_VIGENTE"] = det["_ESTADO"].isin(["ABIERTA", "PNC"])
 
 
+def binomio(nit, wps):
+    """Binomio WPS/nitrito. Devuelve (no_conforme, texto).
+
+    Lo que controla Listeria en el ahumado no es el nitrito solo ni la sal sola,
+    sino los dos juntos. La tabla esta en config.py; aqui esta la misma regla
+    escrita como se lee: libera si el nitrito llega a 85 y el WPS lo acompania,
+    o si el nitrito por si solo pasa de 100.
+
+    Sin WPS medido y con nitrito bajo 100 no se puede acreditar el binomio, asi
+    que no libera: la falta de informacion no exime.
+    """
+    if pd.isna(nit):
+        return False, ""
+    if nit > NIT_BINOMIO:
+        return False, ""
+    if nit < LIM_NITRITO:
+        return True, (f"Nitrito {nit:.1f} ppm < {LIM_NITRITO}"
+                      + (f" (WPS {wps:.2f}% no lo compensa)" if pd.notna(wps)
+                         and wps > WPS_MIN else ""))
+    # entre 85 y 100: decide el WPS
+    if pd.isna(wps):
+        return True, (f"Nitrito {nit:.1f} ppm sobre {LIM_NITRITO} pero sin WPS medido: "
+                      f"no se puede acreditar el binomio (haria falta WPS > {WPS_MIN}"
+                      f" o nitrito > {NIT_BINOMIO})")
+    if wps > WPS_MIN:
+        return False, ""
+    return True, (f"Nitrito {nit:.1f} ppm sobre {LIM_NITRITO} pero no cumple el binomio: "
+                  f"WPS {wps:.2f}% no supera {WPS_MIN} y el nitrito no llega a "
+                  f"{NIT_BINOMIO} ppm")
+
+
 def evalua(rows, criterios=None, desde=None):
     """Estado de cada criterio sobre un conjunto de muestras de laboratorio."""
     if desde is not None:
         rows = rows[rows["_FECHA"].notna() & (rows["_FECHA"] >= desde)]
     r = {"n": len(rows)}
     if len(rows) == 0:
-        r.update(listeria=None, ram=None, nitrito=None, nit_min=None, ar="")
+        r.update(listeria=None, ram=None, nitrito=None, nit_min=None, wps=None,
+                 nit_nc=False, nit_txt="", ar="")
         return r, rows
     r["listeria"] = ("PRESENCIA" if rows["_LM_P"].any()
                      else ("Ausencia" if rows["_LM_DATO"].any() else None))
     r["ram"] = rows["_RAM_MAX"].max() if rows["_RAM_MAX"].notna().any() else None
     r["nitrito"] = rows["_NIT"].min() if rows["_NIT"].notna().any() else None
     r["nit_min"] = rows["_NIT_MIN"].min() if rows["_NIT_MIN"].notna().any() else None
+    r["wps"] = rows["_WPS"].min() if rows["_WPS"].notna().any() else None
+    # El binomio se evalua muestra a muestra: el par nitrito/WPS de UNA muestra
+    # decide. Agregarlos por separado y compararlos despues mezclaria el nitrito
+    # de una con el WPS de otra.
+    _b = [binomio(x["_NIT"], x["_WPS"]) for _, x in rows.iterrows()]
+    _mal = [t for nc, t in _b if nc]
+    r["nit_nc"] = bool(_mal)
+    r["nit_txt"] = "; ".join(sorted(set(_mal)))
     r["ar"] = "R" if (rows["_AR"] == "R").any() else ("A" if (rows["_AR"] == "A").any() else "")
     return r, rows
 
@@ -303,7 +361,7 @@ def incumple(r, criterio):
     if criterio == "NITRITO":
         if r["nitrito"] is None:
             return False, True, "sin dato de nitrito"
-        return r["nitrito"] < LIM_NITRITO, False, f"Nitrito {r['nitrito']:.1f} ppm < {LIM_NITRITO}"
+        return r["nit_nc"], False, r["nit_txt"]
     return False, True, f"criterio no reconocido: {criterio}"
 
 
@@ -552,10 +610,10 @@ def mide(rows, c):
 def por_que_no_aplica(rows, c):
     """Texto trazable para un criterio medido pero no exigible, con el valor omitido."""
     if c == "NITRITO":
-        v = rows["_NIT"].min()
+        mal = [t for _, x in rows.iterrows()
+               for nc, t in [binomio(x["_NIT"], x["_WPS"])] if nc]
         return ("Nitrito no aplica: linea congelada (no es bacon ni wheel)"
-                + (f" (se omite {v:.1f} ppm, bajo {LIM_NITRITO})" if pd.notna(v)
-                   and v < LIM_NITRITO else ""))
+                + (f" (se omite: {mal[0]})" if mal else ""))
     if c == "LISTERIA":
         hubo = bool(rows["_LM_P"].any())
         return ("Listeria no aplica: linea congelada sin destino EE.UU. ni Costa Rica"
@@ -568,7 +626,7 @@ def _falla(row, c):
         return bool(row["_LM_P"])
     if c == "RAM":
         return pd.notna(row["_RAM_MAX"]) and row["_RAM_MAX"] > LIM_RAM
-    return pd.notna(row["_NIT"]) and row["_NIT"] < LIM_NITRITO
+    return binomio(row["_NIT"], row["_WPS"])[0]
 
 
 def _texto(row, c):
@@ -576,7 +634,7 @@ def _texto(row, c):
         return "Listeria: PRESENCIA"
     if c == "RAM":
         return f"RAM {row['_RAM_MAX']:,.0f} UFC/g > {LIM_RAM:,}".replace(",", ".")
-    return f"Nitrito {row['_NIT']:.1f} ppm < {LIM_NITRITO}"
+    return binomio(row["_NIT"], row["_WPS"])[1]
 
 
 def historia(rows, c):
@@ -913,10 +971,11 @@ for l in universo:
     if rows_lab["_BW"].any() and (rows_lab["_LINEA"] == "CONGELADA").any():
         obs.append("Bacon/wheel: figura congelado pero se vende refrigerado en destino, "
                    "asi que el nitrito se evalua igual que en linea refrigerada")
-    ign = rows_lab[~rows_lab["_NIT_APLICA"] & rows_lab["_NIT"].notna()
-                   & (rows_lab["_NIT"] < LIM_NITRITO)]
+    ign = (rows_lab[~rows_lab["_NIT_APLICA"] & rows_lab.apply(
+        lambda x: binomio(x["_NIT"], x["_WPS"])[0], axis=1)] if len(rows_lab) else rows_lab)
     if len(ign):
-        obs.append(f"Nitrito bajo ({ign['_NIT'].min():.1f} ppm) NO aplicado: linea congelada")
+        obs.append("Binomio WPS/nitrito NO aplicado por ser linea congelada: "
+                   + binomio(ign["_NIT"].iloc[0], ign["_WPS"].iloc[0])[1])
     lis_ex = rows_lab[rows_lab["_LM_P"] & ~rows_lab["_LIS_APLICA"]]
     if len(lis_ex):
         obs.append("Listeria PRESENCIA NO aplicada: linea congelada sin destino EE.UU. "
@@ -1006,6 +1065,7 @@ for l in universo:
         "LISTERIA": r["listeria"] or ("sin dato" if len(rows_lab) else None),
         "RAM MAX (UFC/g)": r["ram"],
         "NITRITO PROM. MIN (ppm)": r["nitrito"],
+        "WPS MIN (%)": r["wps"],
         "A/R NITRITO (lab)": r["ar"],
         "BATCHES CON RESULTADO": len(batches),
         "BATCHES NO CONFORMES": "; ".join(f"{b[len(l):] or '(base)'}: {', '.join(v)}"
@@ -1068,6 +1128,7 @@ for b, g in lab.groupby("_L"):
         "LISTERIA": rb["listeria"] or "sin dato",
         "RAM MAX (UFC/g)": rb["ram"],
         "NITRITO PROMEDIO (ppm)": rb["nitrito"],
+        "WPS (%)": rb["wps"],
         "N MUESTRAS": rb["n"],
         "PRIMERA MUESTRA": g["_FECHA"].min(),
         "ULTIMA MUESTRA": g["_FECHA"].max(),
@@ -1209,7 +1270,7 @@ d_lab = lab[lab["_LOTE_REF"].notna()].copy()
 d_lab["ESTADO LOTE"] = d_lab["_LOTE_REF"].map(mapa["ESTADO"])
 d_lab = d_lab[["_LOTE_REF", "ESTADO LOTE", "FUENTE LAB", "CÓDIGO LAB", "FECHA INGRESO", "TIPO ",
                "GRUPO", "PRESENTACIÓN", "LOTE SW", "OBSERVACIÓN"] + LM + RAM + NIT +
-              ["NITRITO PROMEDIO", "A/R Nitrito"]].rename(
+              ["NITRITO PROMEDIO"] + WPS + ["WPS PROMEDIO", "A/R Nitrito"]].rename(
     columns={"_LOTE_REF": "LOTE (normalizado)"})
 d_lab = d_lab.sort_values(["LOTE (normalizado)", "FECHA INGRESO"])
 
@@ -1282,10 +1343,12 @@ for i in range(len(res)):
 
 ws["A1"] = "CRUCE DE BLOQUEOS - STOCK x LAB-REG-08 2026 x REGISTRO DE DETENCIONES"
 ws["A2"] = (f"Laboratorio (derivado, se recalcula): Listeria PRESENCIA en toda linea | "
-            f"RAM > {LIM_RAM:,} UFC/g en toda linea | Nitrito promedio < {LIM_NITRITO} ppm "
-            "SOLO en linea refrigerada y en bacon/wheel, que salen congelados pero se venden "
-            "refrigerados en destino (el resto de la congelada, incluidos los carpaccios, "
-            "no lo aplica) | "
+            f"RAM > {LIM_RAM:,} UFC/g en toda linea | Binomio WPS/nitrito: libera si "
+            f"nitrito >= {LIM_NITRITO} ppm CON WPS > {WPS_MIN}%, o si el nitrito supera "
+            f"{NIT_BINOMIO} ppm por si solo; bajo {LIM_NITRITO} ppm bloquea aunque el WPS "
+            "sobre, y sin WPS medido no se puede acreditar. SOLO en linea refrigerada y en "
+            "bacon/wheel, que salen congelados pero se venden refrigerados en destino (el "
+            "resto de la congelada, incluidos los carpaccios, no lo aplica) | "
             "Listeria SOLO en linea refrigerada y en congelada con destino EE.UU. o "
             "Costa Rica (cliente con PMT); si el destino no se puede determinar, se aplica. "
             "Un criterio deja de estar vigente si hay re-muestreo posterior conforme que vuelva "
@@ -1342,6 +1405,7 @@ for hoja, h in (("RESUMEN POR LOTE", 4), ("VEREDICTO POR BATCH", 1), ("CAMBIOS",
                 c.fill, c.font = fills[c.value], fonts[c.value]
 
 for nom, fmt in (("RAM MAX (UFC/g)", "#,##0"), ("NITRITO PROM. MIN (ppm)", "0.0"),
+                 ("WPS MIN (%)", "0.00"),
                  ("KG NETOS EN STOCK", "#,##0.00"), ("PIEZAS EN STOCK", "#,##0"),
                  ("CAJAS EN STOCK", "#,##0")):
     col = [c.column for c in ws[4] if c.value == nom][0]

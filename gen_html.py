@@ -63,7 +63,7 @@ for _, r in res.iterrows():
         "opeb": txt(r["REGISTRO OPERATIVO BLOQUEA"]) == "SI",
         "prop": txt(r["PROPUESTA DE LIBERACION (no libera)"]), "obs": txt(r["OBSERVACIONES"]),
         "listeria": txt(r["LISTERIA"]), "ram": num(r["RAM MAX (UFC/g)"]),
-        "nit": num(r["NITRITO PROM. MIN (ppm)"]),
+        "nit": num(r["NITRITO PROM. MIN (ppm)"]), "wps": num(r["WPS MIN (%)"]),
         "nbat": int(r["BATCHES CON RESULTADO"]) if not pd.isna(r["BATCHES CON RESULTADO"]) else 0,
         "batmal": txt(r["BATCHES NO CONFORMES"]),
         "nmue": int(r["N MUESTRAS LAB"]) if not pd.isna(r["N MUESTRAS LAB"]) else 0,
@@ -362,8 +362,9 @@ tbody tr.clic:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
     <p class="lead">Cuanto de lo que hay en bodega esta bloqueado, y por que causa. Elige una o
       mas causas; un lote puede tener varias, por eso los totales por causa no suman el total.
       <b>Haz clic en cualquier fila para ver el detalle.</b><br>
-      Criterios: RAM en toda linea; nitrito en refrigerada y en bacon/wheel; Listeria en
-      refrigerada y en congelada con destino EE.UU. o Costa Rica.</p>
+      Criterios: RAM en toda linea; binomio WPS/nitrito en refrigerada y en bacon/wheel
+      (libera con nitrito desde 85 ppm si el WPS supera 3,5%, o con nitrito sobre 100 ppm
+      por si solo); Listeria en refrigerada y en congelada con destino EE.UU. o Costa Rica.</p>
     <div class="aviso"><span>&#9432;</span><div>Se usa el stock de <b>Fishken</b>, que registra
       el lote hasta el numero pero <b>no la letra del batch de ahumado</b>. Por eso aca un lote
       arrastra a todos sus batches: si uno solo incumple, no hay forma de separar las cajas de

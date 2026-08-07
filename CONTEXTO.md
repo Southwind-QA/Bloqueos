@@ -70,8 +70,13 @@ Viven en [`config.py`](config.py). Cambiarlos ahí es visible en el diff, que es
 | Criterio | Dónde aplica |
 |---|---|
 | **RAM** > 100.000 UFC/g | Toda línea |
-| **Nitrito** < 85 ppm | Refrigerada, **más bacon y wheel** (salen congelados pero se venden refrigerados en destino) |
+| **Binomio WPS/nitrito** | Refrigerada, **más bacon y wheel** (salen congelados pero se venden refrigerados en destino) |
 | **Listeria** presencia | Refrigerada siempre; congelada solo con destino **EE.UU. o Costa Rica** |
+
+El nitrito no decide solo: libera si **(nitrito ≥ 85 ppm y WPS > 3,5 %) o nitrito > 100 ppm**.
+Bajo 85 bloquea aunque el WPS sobre. El WPS ya venía medido en el bloque fisicoquímico
+del LAB-REG-08 (`%SAL`, `%H`, `WPS`, `NITRITO`, cada uno con tres réplicas y promedio);
+solo faltaba leerlo.
 
 Un criterio **deja de estar vigente** solo si hay muestras posteriores que vuelven a
 medir *ese mismo criterio* y salen conformes. Una muestra posterior que no midió lo que
@@ -202,8 +207,9 @@ fallar en silencio.
 
 **Trabajo pendiente:**
 
-- Aplicar `supabase/migrations/20260806120800_bloqueos_motivo_operativo.sql` a mano en
-  el SQL Editor, como las anteriores, antes de la próxima carga a Postgres.
+- Aplicar a mano en el SQL Editor, antes de la próxima carga a Postgres:
+  `20260807130000_bloqueos_wps.sql` y `20260807130100_bloqueos_criterio_binomio.sql`.
+  (Las de `motivo_operativo` y su versión de criterios ya se aplicaron el 07/08/2026.)
 - Rotar la clave `sb_secret_` que quedó expuesta en un chat.
 - Invitar a las 14 personas autorizadas.
 - Automatizar el motor en GitHub Actions.
