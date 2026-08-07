@@ -60,7 +60,9 @@ for _, r in res.iterrows():
         "tipos": lista(r["TIPOS DE DESVIACION"]),
         "lab": txt(r["MOTIVO - LABORATORIO"]), "det": txt(r["MOTIVO - DETENCION"]),
         "ope": txt(r["MOTIVO - REGISTRO OPERATIVO"]),
+        "mp": txt(r["MOTIVO - MATERIA PRIMA"]),
         "opeb": txt(r["REGISTRO OPERATIVO BLOQUEA"]) == "SI",
+        "mpb": txt(r["MATERIA PRIMA BLOQUEA"]) == "SI",
         "prop": txt(r["PROPUESTA DE LIBERACION (no libera)"]), "obs": txt(r["OBSERVACIONES"]),
         "listeria": txt(r["LISTERIA"]), "ram": num(r["RAM MAX (UFC/g)"]),
         "nit": num(r["NITRITO PROM. MIN (ppm)"]), "wps": num(r["WPS MIN (%)"]),
@@ -223,7 +225,7 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--focus);outline-o
 .fchip .sb{font-size:11.5px;color:var(--ink-3)}
 .fchip.listeria{color:var(--c-listeria)} .fchip.ram{color:var(--c-ram)}
 .fchip.nitrito{color:var(--c-nitrito)} .fchip.det{color:var(--serious)}
-.fchip.ope{color:var(--warning)}
+.fchip.ope{color:var(--warning)} .fchip.mp{color:var(--critical)}
 .tiles{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:13px;
   padding:13px 17px;flex:1 1 130px;min-width:130px;max-width:230px;box-shadow:var(--shadow)}
@@ -282,6 +284,7 @@ td.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .tag.nitrito{background:var(--t-nitrito);color:var(--c-nitrito)}
 .tag.det{background:var(--t-serious);color:var(--serious)}
 .tag.ope{background:var(--t-warning);color:var(--warning)}
+.tag.mp{background:var(--t-critical);color:var(--critical)}
 .why{font-size:12.5px;line-height:1.5}
 .why .hd{font-weight:620;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
   color:var(--ink-3)}
@@ -469,6 +472,7 @@ const CAUSAS = [
   {k:'NITRITO',  nm:'Nitrito',   c:'nitrito'},
   {k:'DETENCION',nm:'Detencion', c:'det'},
   {k:'REGISTRO', nm:'Registro operativo', c:'ope'},
+  {k:'MATERIAPRIMA', nm:'Materia prima', c:'mp'},
 ];
 const VIEWS = [['consulta','Consulta con packing list'],['bloqueados','Estado de stock'],
   ['buscar','Buscar'],['cambios','Movimientos historicos'],['detenciones','Detenciones'],
@@ -481,7 +485,8 @@ const nf=n=>Number(n||0).toLocaleString('es-CL');
 const cls=e=>String(e).toUpperCase().replace(/[^A-Z]/g,'');
 const chip=e=>'<span class="chip '+cls(e)+'">'+esc(e)+'</span>';
 const norm=s=>String(s).trim().toUpperCase().split('*')[0].replace(/[^A-Z0-9@]/g,'');
-const causasDe=o=>o.causas.concat(o.det?['DETENCION']:[]).concat(o.ope?['REGISTRO']:[]);
+const causasDe=o=>o.causas.concat(o.det?['DETENCION']:[]).concat(o.ope?['REGISTRO']:[])
+  .concat(o.mp?['MATERIAPRIMA']:[]);
 
 document.getElementById('sub').innerHTML = D.meta.lotes+' lotes &middot; '+nf(D.meta.cajas)+
   ' cajas &middot; '+nf(D.meta.batches)+' batches con resultado &middot; laboratorio hasta '+
@@ -526,6 +531,7 @@ function porque(o){
   if(o.lab) h+='<div><span class="hd">Lab</span> '+esc(o.lab)+'</div>';
   if(o.det) h+='<div><span class="hd">Detencion</span> '+esc(o.det)+'</div>';
   if(o.ope) h+='<div><span class="hd">Registro operativo</span> '+esc(o.ope)+'</div>';
+  if(o.mp) h+='<div><span class="hd">Materia prima</span> '+esc(o.mp)+'</div>';
   if(o.mlib) h+='<div class="note"><b>Por que quedo asi:</b> '+esc(o.mlib)+'</div>';
   if(o.firma) h+='<div class="note"><b>Firmada por</b> '+esc(o.firma)+'</div>';
   if(o.porcrit) h+='<div class="note">'+esc(o.porcrit)+
@@ -592,10 +598,11 @@ function detsDe(q){
     return m.length >= MIN && (q.startsWith(m) || m.startsWith(q)) &&
       (d['ESTADO'] === 'ABIERTA' || d['ESTADO'] === 'PNC');});
 }
-// El laboratorio no sabe nada del registro operativo: un lote bloqueado por correo
-// con lab conforme saldria LIBERADO si la consulta mirara solo los batches.
+// El veredicto por batch es puro laboratorio: no sabe nada del registro operativo
+// ni de la materia prima. Un lote bloqueado por esos origenes, con lab conforme,
+// saldria LIBERADO si la consulta mirara solo los batches.
 function opesDe(q){
-  return q.length < MIN ? [] : L.filter(o => o.ope && o.n.length >= MIN &&
+  return q.length < MIN ? [] : L.filter(o => (o.ope || o.mp) && o.n.length >= MIN &&
     (q.startsWith(o.n) || o.n.startsWith(q)));
 }
 function parecidos(tok){
@@ -612,7 +619,7 @@ function estadoLinea(x){
   if(x.dts.some(d => d['ESTADO'] === 'PNC')) return 'PNC';
   // Un bloqueo declarado manda sobre un laboratorio conforme: el origen es otro y
   // solo lo cierra una liberacion explicita.
-  const decl = x.dts.length || x.ops.some(o => o.opeb);
+  const decl = x.dts.length || x.ops.some(o => o.opeb || o.mpb);
   if(x.r){let e = x.r.hits.map(h => h.estado).sort((a,b)=>ORD[a]-ORD[b])[0];
     // El resultado del batch vecino no libera este batch, solo puede bloquearlo.
     if(x.r.nivel === 'APROXIMADO' && e !== 'BLOQUEADO') e = 'SIN RESULTADO DE LAB';
@@ -662,10 +669,14 @@ function detalle(x){
   x.dts.forEach(d => h.push('<div><span class="tag det">Detencion</span>'+esc(d['ID'])+' '+
     esc(d['TIPO DE DESVIACION'])+'. <span class="mut">'+esc(d['PROPUESTA DE LIBERACION'])+
     '</span></div>'));
-  x.ops.forEach(o => h.push('<div><span class="tag ope">Registro operativo</span>'+
-    (o.n!==norm(x.usado)?'<span class="mono">'+esc(o.lote)+'</span> ':'')+esc(o.ope)+
-    (o.opeb?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+
-    (o.prop?'<div class="note">'+esc(o.prop)+'</div>':'')+'</div>'));
+  x.ops.forEach(o => {
+    const ref = o.n!==norm(x.usado)?'<span class="mono">'+esc(o.lote)+'</span> ':'';
+    if(o.ope) h.push('<div><span class="tag ope">Registro operativo</span>'+ref+esc(o.ope)+
+      (o.opeb?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>');
+    if(o.mp) h.push('<div><span class="tag mp">Materia prima</span>'+ref+esc(o.mp)+
+      (o.mpb?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>');
+    if(o.prop) h.push('<div class="note">'+esc(o.prop)+'</div>');
+  });
   if(!x.r && x.usado){
     const p = parecidos(x.usado);
     h.push('<div><b>El laboratorio aun no tiene resultado para este lote.</b></div>'+
@@ -751,8 +762,8 @@ function baseBloq(){
   const de=document.getElementById('fd').value;
   if(de) d=d.filter(o=>(o.dest||'')===de);
   const f=document.getElementById('f2').value.toLowerCase().trim();
-  if(f) d=d.filter(o=>(o.lote+' '+o.lab+' '+o.det+' '+o.ope+' '+o.bodegas+' '+o.prod+' '+
-    o.cliente+' '+o.obs+' '+o.batmal).toLowerCase().includes(f));
+  if(f) d=d.filter(o=>(o.lote+' '+o.lab+' '+o.det+' '+o.ope+' '+o.mp+' '+o.bodegas+' '+
+    o.prod+' '+o.cliente+' '+o.obs+' '+o.batmal).toLowerCase().includes(f));
   return d;
 }
 function toggle(k){sel.has(k)?sel.delete(k):sel.add(k);pintaBloq();}
@@ -900,6 +911,7 @@ function abrirLote(n){
       (o.lab?'<div class="mot">LAB '+esc(o.lab)+'</div>':'')+
       (o.det?'<div class="mot">DETENCION '+esc(o.det)+'</div>':'')+
       (o.ope?'<div class="mot">REGISTRO OPERATIVO '+esc(o.ope)+'</div>':'')+
+      (o.mp?'<div class="mot">MATERIA PRIMA '+esc(o.mp)+'</div>':'')+
       (o.hrem?'<div class="note">Re-muestreo conforme: '+esc(o.hrem)+'</div>':'')+
       critHtml(o.porcrit)+(o.evid?'<div class="pista">Evidencia: '+esc(o.evid)+'</div>':''))+
     grp('Batches del laboratorio ('+bs.length+')', mini(['Batch','Estado','Detalle','Muestras'],

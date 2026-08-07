@@ -118,6 +118,7 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
 .tag.NITRITO{background:var(--t-nitrito);color:var(--c-nitrito)}
 .tag.DETENCION{background:var(--t-serious);color:var(--serious)}
 .tag.REGISTRO{background:var(--t-warning);color:var(--warning)}
+.tag.MATERIAPRIMA{background:var(--t-critical);color:var(--critical)}
 .why{font-size:12.5px;line-height:1.5}
 .why .hd{font-weight:620;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
 .note{color:var(--ink-2);font-size:12px;margin-top:3px}
@@ -300,7 +301,8 @@ const MIN = 8;
 const CAUSAS = [
   {k:'LISTERIA', nm:'Listeria', c:'listeria'}, {k:'RAM', nm:'RAM', c:'ram'},
   {k:'NITRITO', nm:'Nitrito', c:'nitrito'}, {k:'DETENCION', nm:'Detención', c:'det'},
-  {k:'REGISTRO', nm:'Registro operativo', c:'ope'}];
+  {k:'REGISTRO', nm:'Registro operativo', c:'ope'},
+  {k:'MATERIAPRIMA', nm:'Materia prima', c:'mp'}];
 const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
              'LIBERADO POR DECISION':4,'LIBERADO':5};
 const VIEWS = [['consulta','Consulta con packing list'],['stock','Estado de stock'],['buscar','Buscar']];
@@ -396,11 +398,11 @@ const tiles = a => '<div class="tiles">'+a.map(([k,v])=>
   `<div class="tile"><b>${typeof v==='number'?nf(v):esc(v)}</b><span>${esc(k)}</span></div>`).join('')+'</div>';
 const emparenta = (a,b) => a && b && a.length>=MIN && b.length>=MIN && (a.startsWith(b)||b.startsWith(a));
 const causasDe = o => (o.causas||[]).concat(o.motivo_detencion?['DETENCION']:[])
-  .concat(o.motivo_operativo?['REGISTRO']:[]);
+  .concat(o.motivo_operativo?['REGISTRO']:[]).concat(o.motivo_mp?['MATERIAPRIMA']:[]);
 // El laboratorio no sabe nada del registro operativo: sin esto un lote bloqueado por
 // correo con laboratorio conforme saldria LIBERADO en la consulta de packing list.
 const opesDe = q => q && q.length>=MIN
-  ? L.filter(o=>o.motivo_operativo && emparenta(o.normalizado, q)) : [];
+  ? L.filter(o=>(o.motivo_operativo||o.motivo_mp) && emparenta(o.normalizado, q)) : [];
 
 function porque(o){
   let h = '';
@@ -433,7 +435,7 @@ function estadoLinea(x){
   if(!x.cand) return 'SIN LOTE';
   // Un bloqueo declarado manda sobre un laboratorio conforme: el origen es otro y
   // solo lo cierra una liberacion explicita.
-  const decl = (x.ops||[]).some(o=>o.operativo_bloquea);
+  const decl = (x.ops||[]).some(o=>o.operativo_bloquea || o.mp_bloquea);
   if(!x.r) return decl ? 'BLOQUEADO' : 'SIN RESULTADO DE LAB';
   let e = x.r.hits.map(h=>h.estado).sort((a,b)=>ORD[a]-ORD[b])[0];
   if(x.r.nivel==='APROXIMADO' && e!=='BLOQUEADO' && e!=='PNC') e = 'SIN RESULTADO DE LAB';

@@ -27,6 +27,7 @@ diseño evita:
 | **Laboratorio** | Derivado de los resultados y los criterios | El motor | Entero, en cada corrida |
 | **Detención** | Declarada por correo ante una desviación | Personas | Nunca, solo se agrega |
 | **Registro operativo** | Declarado en `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
+| **Materia prima** | Heredado: la MP venía no conforme | El motor, vía `PRO-REG-46` | Entero, en cada corrida |
 
 Sus valores por omisión son **opuestos**, y eso es deliberado:
 
@@ -34,7 +35,28 @@ Sus valores por omisión son **opuestos**, y eso es deliberado:
 - Con un bloqueo declarado abierto, sigue bloqueado. **La ausencia de evidencia
   no libera.**
 
-Los tres orígenes se acumulan: un lote con varios tiene que cerrarlos todos.
+Los cuatro orígenes se acumulan: un lote con varios tiene que cerrarlos todos.
+
+### Lo que traía la materia prima
+
+Si la materia prima estaba bloqueada, lo que se elaboró con ella también lo está.
+El laboratorio registra la MP por `LOTE ORIGEN` + `PROVEEDOR` y deja el `LOTE SW`
+vacío, así que esas muestras nunca entraban al cruce: el `PRO-REG-46` (ingreso de
+MP por proveedor) es lo único que las enlaza con el producto.
+
+A la materia prima solo le aplican **listeria y RAM** — no trae nitrito ni WPS, así
+que el binomio no tiene nada que evaluar ahí.
+
+El bloqueo se levanta con un re-muestreo conforme de *esa misma* materia prima, o
+con una decisión firmada. **Que el producto terminado haya salido conforme después
+no lo libera solo**: el proceso es justamente lo que controla lo que traía la
+materia prima, y esa lectura la firma Calidad. El argumento queda escrito en la
+propuesta para que quien firme no tenga que ir a buscarlo.
+
+**Cobertura:** el `PRO-REG-46` existe solo para 2026 y cubre 9 proveedores. De los
+354 lotes de MP del laboratorio, 245 no figuran en él y su bloqueo no se puede
+arrastrar a ningún producto. El motor lo declara en consola y en la hoja `FUENTES`:
+un cruce parcial que no se declara se lee como cobertura total.
 
 ### Lo declarado se cierra por su propio motivo
 
@@ -109,6 +131,7 @@ Tres reglas transversales:
 | `LAB-REG-08*.xlsx` | Resultados de laboratorio. Uno por año, con estructura levemente distinta entre años |
 | `REGISTRO DETENCIONES.xlsx` | Detenciones por correo. **Se lee, nunca se sobrescribe** |
 | `Bloqueo 2026.xlsm` | Registro operativo: bloqueos declarados con su motivo, y liberaciones con su mercado |
+| `*PRO-REG-46*.xlsx` | Ingreso de materia prima por proveedor. Enlaza el lote del proveedor con el lote SW: lo único que permite heredar el bloqueo de la MP |
 
 Cada una tiene su propio corte, y la hoja `FUENTES` del Excel de salida lo deja
 por escrito. Un lote ausente **no es un lote liberado**: puede ser que su bodega
@@ -122,7 +145,7 @@ descargar_fishken.py  baja los reportes de stock desde Fishken, sin navegador
 cruce2.py        el motor: normaliza, evalúa y escribe el Excel
 gen_html.py      genera la página de consulta a partir del Excel
 actualizar.py    corre la sincronización, el cruce y la página en orden
-sincronizar_lab.py    trae los LAB-REG-08 desde la carpeta del laboratorio
+sincronizar_lab.py    trae los LAB-REG-08 y el PRO-REG-46 desde la carpeta del laboratorio
 cargar_supabase.py    sube el resultado a Postgres
 crear_decisiones.py   crea el registro de liberaciones firmadas
 web/             el sitio que consulta la base (Cloudflare Pages)

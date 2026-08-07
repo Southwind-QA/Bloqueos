@@ -58,7 +58,8 @@ def emparenta(a, b):
 marcos = []
 for f in sorted(glob.glob(os.path.join(BASE, "*.xlsx"))):
     n = os.path.basename(f)
-    if n.startswith("~$") or n.startswith("LAB-REG-08") or f in (F_DET, OUT):
+    if (n.startswith("~$") or n.startswith("LAB-REG-08") or "PRO-REG-46" in n
+            or f in (F_DET, OUT)):
         continue
     try:
         cab = pd.read_excel(f, header=None, nrows=2)
@@ -91,6 +92,11 @@ INFO = ["CÓDIGO LAB", "FECHA INGRESO", "TIPO ", "GRUPO", "PRESENTACIÓN", "LOTE
 _HOJAS_VISTAS = {}
 
 
+# Las muestras de materia prima traen LOTE ORIGEN y dejan LOTE SW vacio, asi que
+# el filtro de carga las descarta. Se apartan aqui para cruzarlas por el PRO-REG-46.
+_MP_CRUDAS = []
+
+
 def carga_lab(f):
     n = os.path.basename(f)
     xls = pd.ExcelFile(f)
@@ -106,6 +112,8 @@ def carga_lab(f):
         return None
     _HOJAS_VISTAS[hojas[0]] = n
     d = pd.read_excel(f, sheet_name=hojas[0], header=2).dropna(how="all")
+    _MP_CRUDAS.append(d[d["TIPO "].astype(str).str.strip().str.upper().str.startswith("MP")
+                        & d["LOTE ORIGEN"].notna()].assign(_FUENTE=hojas[0]))
     d = d[d["LOTE SW"].notna()].copy()
     cols = list(d.columns)
 
@@ -165,6 +173,87 @@ lab["_NIT_MIN"] = _n.min(axis=1)
 _w = lab[WPS].apply(pd.to_numeric, errors="coerce")
 lab["_WPS"] = pd.to_numeric(lab["WPS PROMEDIO"], errors="coerce").fillna(_w.mean(axis=1))
 lab["_AR"] = lab["A/R Nitrito"].astype(str).str.strip().str.upper().replace("NAN", "")
+
+# ----------------------------------------------------------------- MATERIAS PRIMAS
+# Si una materia prima esta bloqueada, lo que se elaboro con ella tambien lo esta.
+# El laboratorio registra la MP por LOTE ORIGEN + PROVEEDOR y deja el LOTE SW
+# vacio, asi que esas muestras no entran por el camino normal; el PRO-REG-46 es lo
+# unico que las enlaza con el producto que salio de ellas.
+#
+# A la materia prima solo le aplican listeria y RAM: no trae nitrito ni WPS (0 de
+# 509 muestras), asi que el binomio no tiene nada que evaluar ahi.
+MIN_PROV = 6            # los lotes de proveedor son mas cortos que los de planta
+
+
+def npro(s):
+    """Lote de proveedor comparable.
+
+    Es otra convencion que la del lote SW y hay que respetarla: aqui el sufijo
+    tras el guion identifica el pallet (@4M1262004-VQ009F), no el batch.
+    """
+    return re.sub(r"[^0-9A-Z]", "", str(s).strip().upper().split("-")[0])
+
+
+def lotes_prov(s):
+    """Una celda puede traer varios lotes: '26020006 / 26020007'."""
+    return [x for x in (npro(p) for p in re.split(r"[/,;]", str(s))) if len(x) >= MIN_PROV]
+
+
+def laxo_prov(s):
+    """En el lote de proveedor, a diferencia del lote SW, el prefijo de
+    certificacion y la confusion O/0 SI son ruido de transcripcion."""
+    return s.lstrip("@B").replace("O", "0").replace("I", "1")
+
+
+# ---- PRO-REG-46: una hoja por proveedor, lote de proveedor -> lote SW
+MP_DE_SW, PROV_46, _f46 = {}, {}, []
+for f in sorted(glob.glob(config.ruta(config.GLOB_MP))):
+    if os.path.basename(f).startswith("~$"):
+        continue
+    _f46.append(os.path.basename(f))
+    try:
+        xls46 = pd.ExcelFile(f)
+    except Exception as e:                                          # noqa: BLE001
+        print("  (no se pudo leer el PRO-REG-46):", e)
+        continue
+    for hoja in xls46.sheet_names:
+        d46 = pd.read_excel(xls46, sheet_name=hoja)
+        d46.columns = [str(c).strip() for c in d46.columns]
+        if "lote proveedor" not in d46.columns or "Lote SW" not in d46.columns:
+            continue
+        for _, x in d46[d46["lote proveedor"].notna() & d46["Lote SW"].notna()].iterrows():
+            sw = norm(x["Lote SW"])
+            if len(sw) < MIN_LOTE:
+                continue
+            for p in lotes_prov(x["lote proveedor"]):
+                MP_DE_SW.setdefault(sw, set()).add(laxo_prov(p))
+                PROV_46[laxo_prov(p)] = hoja
+
+if _f46:
+    print(f"  materias primas: {os.path.basename(_f46[0])} -> {len(MP_DE_SW)} lotes SW "
+          f"enlazados con {len(PROV_46)} lotes de proveedor")
+else:
+    print("  (sin PRO-REG-46: no se puede arrastrar el bloqueo de materia prima)")
+
+# ---- muestras de materia prima, con las mismas columnas internas que el resto
+# para poder reutilizar historia() y su regla de vigencia sin duplicarla
+if _MP_CRUDAS:
+    mp = pd.concat(_MP_CRUDAS, ignore_index=True)
+    mp["_L"] = mp["LOTE ORIGEN"].map(lambda x: (lotes_prov(x) or [""])[0]).map(laxo_prov)
+    mp["_TODOS"] = mp["LOTE ORIGEN"].map(lambda x: [laxo_prov(p) for p in lotes_prov(x)])
+    mp["_FECHA"] = pd.to_datetime(mp["FECHA INGRESO"], errors="coerce")
+    _mlm = mp[LM].astype(str).apply(lambda c: c.str.strip().str.upper())
+    mp["_LM_P"] = (_mlm == "P").any(axis=1)
+    mp["_LM_DATO"] = mp[LM].notna().any(axis=1)
+    mp["_LIS_APLICA"] = True          # en materia prima no hay destino que la exima
+    mp["_RAM_MAX"] = mp[RAM].apply(pd.to_numeric, errors="coerce").max(axis=1)
+    mp["_NIT"] = pd.NA                # la MP no trae nitrito ni WPS
+    mp["_WPS"] = pd.NA
+    mp["_NIT_APLICA"] = False
+    mp = mp[mp["_L"].str.len() >= MIN_PROV]
+else:
+    mp = pd.DataFrame(columns=["_L", "_FECHA", "_LM_P", "_LM_DATO", "_LIS_APLICA",
+                               "_RAM_MAX", "_NIT", "_WPS", "_NIT_APLICA", "OBSERVACIÓN"])
 
 # ------------------------------------------------- linea de proceso
 # El nitrito es un control de la linea REFRIGERADA: en la congelada el criterio no
@@ -700,6 +789,69 @@ def resume(rows):
     return agg, porbat
 
 
+# ------------------------------------------------- estado de cada materia prima
+# Se evalua con la misma regla de vigencia que el producto terminado: un resultado
+# reprobado deja de estar vigente solo si despues hay muestras de ESA materia prima
+# que vuelven a medir ESE criterio y salen conformes.
+CRIT_MP = ("LISTERIA", "RAM")
+MP_ESTADO = {}
+for _l, _g in mp.groupby("_L"):
+    MP_ESTADO[_l] = {c: historia(_g, c) for c in CRIT_MP}
+_mp_nc = [k for k, v in MP_ESTADO.items()
+          if any(x["estado"] == "NO CONFORME" for x in v.values())]
+_mp_rem = [k for k, v in MP_ESTADO.items()
+           if k not in _mp_nc and any(x["estado"] == "REMUESTREO CONFORME" for x in v.values())]
+if len(mp):
+    _sin46 = [k for k in MP_ESTADO if k not in PROV_46]
+    print(f"  materias primas: {len(mp)} muestras sobre {len(MP_ESTADO)} lotes; "
+          f"{len(_mp_nc)} no conformes, {len(_mp_rem)} con re-muestreo conforme")
+    print(f"  de los {len(MP_ESTADO)} lotes de MP del laboratorio, {len(_sin46)} no figuran "
+          "en el PRO-REG-46: su bloqueo no se puede arrastrar a ningun producto")
+    _prov_sin = (mp[mp["_L"].isin(_sin46)]["PROVEEDOR"].astype(str).str.strip()
+                 .str.upper().value_counts().head(6))
+    if len(_prov_sin):
+        print("     " + ", ".join(f"{k}={v}" for k, v in _prov_sin.items()))
+
+
+def materia_prima(clave):
+    """Materias primas no conformes con las que se elaboro este lote.
+
+    Devuelve (motivos, propuestas, n_bloquean, n_candidatas). El bloqueo de una
+    materia prima NO lo levanta un resultado conforme del producto terminado: eso
+    deja el lote como candidato y la firma es de Calidad.
+    """
+    if not MP_DE_SW:
+        return [], [], 0, 0, pd.NaT
+    mps = set()
+    for sw, ps in MP_DE_SW.items():
+        if emparenta(sw, clave):
+            mps |= ps
+    motivos, propuestas, nb, nc, falla = [], [], 0, 0, pd.NaT
+    for p in sorted(mps):
+        est = MP_ESTADO.get(p)
+        if not est:
+            continue
+        prov = PROV_46.get(p, "")
+        malos = [c for c in CRIT_MP if est[c]["estado"] == "NO CONFORME"]
+        rems = [c for c in CRIT_MP if est[c]["estado"] == "REMUESTREO CONFORME"]
+        etq = f"MP {p}" + (f" ({prov})" if prov else "")
+        if malos:
+            nb += 1
+            motivos.append(f"{etq}: " + "; ".join(est[c]["txt"] for c in malos))
+            propuestas.append(f"{etq}: NO LIBERABLE - la materia prima mantiene "
+                              f"{', '.join(malos)} sin re-muestreo conforme posterior")
+            for c in malos:
+                if pd.notna(est[c]["falla"]) and (pd.isna(falla) or est[c]["falla"] > falla):
+                    falla = est[c]["falla"]
+        elif rems:
+            nc += 1
+            motivos.append(f"{etq}: " + "; ".join(est[c]["txt"] for c in rems))
+            propuestas.append(f"{etq}: LIBERABLE segun lab - la materia prima tiene "
+                              f"re-muestreo conforme posterior en {', '.join(rems)}. "
+                              "Requiere firma de Calidad.")
+    return motivos, propuestas, nb, nc, falla
+
+
 # ----------------------------------------------------------------- universo de lotes
 lotes_stock = sorted(stock["_L"].unique())
 lotes_det = sorted(det.loc[det["_VIGENTE"], "_L"].unique())
@@ -906,19 +1058,40 @@ for l in universo:
                                       f"{', '.join(crit)} ({inf}). Requiere firma de Calidad.")
     propuestas += propuestas_ope
 
+    # ---- materia prima: lo que estaba bloqueado antes de entrar a proceso
+    motivos_mp, propuestas_mp, mp_pend, mp_cand, mp_falla = materia_prima(l)
+    propuestas += propuestas_mp
+    # El proceso -ahumado, altas presiones- es justamente lo que controla lo que
+    # traia la materia prima. Cuando el producto ya se analizo despues y salio
+    # conforme, el bloqueo sigue en pie pero el argumento para levantarlo queda a
+    # la vista de quien firma, en vez de obligarlo a ir a buscarlo al Excel.
+    if mp_pend and pd.notna(mp_falla) and len(rows_lab):
+        _post = rows_lab[rows_lab["_FECHA"] > mp_falla]
+        if len(_post):
+            _rp, _ = evalua(_post)
+            _ok = [c for c in CRIT_MP if not any(incumple(_rp, c)[:2])]
+            if _ok:
+                propuestas.append(
+                    f"Materia prima: el producto terminado tiene {len(_post)} muestra(s) "
+                    f"posterior(es) al {mp_falla:%d/%m/%Y} conforme(s) en {', '.join(_ok)}. "
+                    "No libera sola: el bloqueo viene de la materia prima y solo lo cierra "
+                    "una decision firmada de Calidad.")
+
     # ---- estado consolidado
     # Los origenes se acumulan y cada uno tiene que cerrarse por su cuenta.
     bloquean = [nombre for nombre, hay in (("LAB", motivos_lab), ("DETENCION", motivos_det),
-                                           ("REGISTRO OPERATIVO", ope_pend)) if hay]
+                                           ("REGISTRO OPERATIVO", ope_pend),
+                                           ("MATERIA PRIMA", mp_pend)) if hay]
     if hay_pnc:
         estado, origen = "PNC", "DETENCION"
     elif bloquean:
         estado, origen = "BLOQUEADO", " + ".join(bloquean)
-    elif motivos_rem or ope_ok:
+    elif motivos_rem or ope_ok or mp_cand:
         # fallo y se re-muestreo conforme cubriendo el criterio: no se libera solo
         estado = "CANDIDATO A LIBERAR"
         origen = " + ".join((["LAB"] if motivos_rem else [])
-                            + (["REGISTRO OPERATIVO"] if ope_ok else []))
+                            + (["REGISTRO OPERATIVO"] if ope_ok else [])
+                            + (["MATERIA PRIMA"] if mp_cand else []))
     elif len(rows_lab) == 0 or all(agg[c]["estado"] == "SIN DATO" for c in CRIT):
         estado, origen = "SIN ANALISIS", ""
     else:
@@ -1055,11 +1228,13 @@ for l in universo:
         "MOTIVO - LABORATORIO": " | ".join(motivos_lab),
         "MOTIVO - DETENCION": " | ".join(motivos_det),
         "MOTIVO - REGISTRO OPERATIVO": " | ".join(motivos_ope),
+        "MOTIVO - MATERIA PRIMA": " | ".join(motivos_mp),
         "FECHA DE BLOQUEO OPERATIVO": (opes["FECHA"].max() if len(opes) else pd.NaT),
         # la consulta de packing list resuelve contra el laboratorio, que no sabe
         # nada del registro operativo: sin esta marca un lote bloqueado por correo
         # con lab conforme saldria LIBERADO en la consulta
         "REGISTRO OPERATIVO BLOQUEA": "SI" if ope_pend else "",
+        "MATERIA PRIMA BLOQUEA": "SI" if mp_pend else "",
         "PROPUESTA DE LIBERACION (no libera)": " || ".join(propuestas),
         "OBSERVACIONES": " | ".join(obs),
         "LISTERIA": r["listeria"] or ("sin dato" if len(rows_lab) else None),
@@ -1252,10 +1427,10 @@ camlog = camlog.iloc[::-1]          # lo mas reciente primero
 mapa = res.set_index("LOTE (normalizado)")
 d_st = stock.copy()
 for col in ("ESTADO", "ORIGEN DEL BLOQUEO", "MOTIVO - LABORATORIO", "MOTIVO - DETENCION",
-            "MOTIVO - REGISTRO OPERATIVO"):
+            "MOTIVO - REGISTRO OPERATIVO", "MOTIVO - MATERIA PRIMA"):
     d_st[col] = d_st["_L"].map(mapa[col])
 cols_st = (["ESTADO", "ORIGEN DEL BLOQUEO", "MOTIVO - LABORATORIO", "MOTIVO - DETENCION",
-            "MOTIVO - REGISTRO OPERATIVO", "BODEGA"]
+            "MOTIVO - REGISTRO OPERATIVO", "MOTIVO - MATERIA PRIMA", "BODEGA"]
            + [c for c in stock.columns if not c.startswith("_") and c != "BODEGA"])
 d_st = d_st[cols_st]
 
@@ -1304,6 +1479,12 @@ fd = pd.to_datetime(det["FECHA CORREO"], errors="coerce")
 fuentes.append({"FUENTE": "Detenciones", "ARCHIVO": os.path.basename(F_DET), "REGISTROS": len(det),
                 "DESDE": fd.min(), "HASTA": fd.max(),
                 "ARCHIVO GUARDADO": _guardado(os.path.basename(F_DET))})
+for _n46 in _f46:
+    fuentes.append({"FUENTE": "Materia prima (PRO-REG-46)", "ARCHIVO": _n46,
+                    "REGISTROS": len(mp),
+                    "DESDE": mp["_FECHA"].min() if len(mp) else pd.NaT,
+                    "HASTA": mp["_FECHA"].max() if len(mp) else pd.NaT,
+                    "ARCHIVO GUARDADO": _guardado(_n46)})
 fuentes.append({"FUENTE": "Registro operativo (bloqueos abiertos)",
                 "ARCHIVO": config.ARCH_OPERATIVO, "REGISTROS": len(ope),
                 "DESDE": ope["FECHA"].min() if len(ope) else pd.NaT,

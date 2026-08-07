@@ -16,11 +16,12 @@ los resultados de laboratorio y las detenciones declaradas por correo.
 Antes de esto, la información vivía en planillas separadas y nadie podía responder
 "¿este packing list tiene producto bloqueado?" sin revisar a mano.
 
-**Al 07/08/2026:** 2.149 lotes evaluados, 2.381 batches, 72.779 cajas en tres bodegas.
-24.154 cajas bloqueadas (48.543 kg), 11.242 candidatas a liberar, 36.592 liberadas.
+**Al 07/08/2026:** 2.153 lotes evaluados, 2.384 batches, 72.779 cajas en tres bodegas.
+34.360 cajas bloqueadas (61.439 kg), 6.701 candidatas a liberar, 30.971 liberadas.
 
-El salto respecto de la foto anterior (537 lotes, 14.048 cajas bloqueadas) es la
-incorporación del registro operativo como tercer origen: ver la sección 2.
+El salto respecto de la foto anterior (537 lotes, 14.048 cajas bloqueadas) son dos
+orígenes nuevos incorporados el 07/08/2026 —el registro operativo y la materia
+prima— más el binomio WPS/nitrito. Ver la sección 2.
 
 ---
 
@@ -34,6 +35,7 @@ este diseño evita:
 | **Laboratorio** | Derivado de los resultados y los criterios | El motor | Entero, cada corrida |
 | **Detención** | Declarada por correo ante una desviación | Personas | Nunca, solo se agrega |
 | **Registro operativo** | Declarado en `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
+| **Materia prima** | Heredado: la MP venía no conforme | El motor, vía `PRO-REG-46` | Entero, cada corrida |
 
 Sus valores por omisión son **opuestos**, y es deliberado:
 
@@ -106,6 +108,10 @@ Todas se descubrieron rompiendo algo. No las deshagas.
 - **La clave es el código normalizado, no la etiqueta visible.** 38 de 545 filas
   repetían etiqueta.
 - **El sufijo `*NNL`** de los lotes del laboratorio (semana y turno) sí es descartable.
+- **El lote de proveedor es otra convención, no la del lote SW.** Ahí el sufijo tras
+  el guion es el pallet (`@4M1262004-VQ009F`), una celda puede traer varios lotes
+  separados por `/`, y el prefijo de certificación y la confusión O/0 **sí** son ruido
+  de transcripción. Normalizar los dos con la misma función pierde la mitad del cruce.
 - **Un lote ausente no es un lote liberado.** Puede que su bodega se exportara antes
   de que ingresara.
 - **En `Bloqueo 2026.xlsm` el `Estado` se escribe solo al liberar.** Una fila sin estado
@@ -128,6 +134,7 @@ Todas se descubrieron rompiendo algo. No las deshagas.
 | `REGISTRO DETENCIONES.xlsx` | Detenciones por correo | Manual, y así debe ser |
 | `REGISTRO DECISIONES.xlsx` | Liberaciones firmadas | Manual, y así debe ser |
 | `Bloqueo 2026.xlsm` | Bloqueos declarados con su motivo, y liberaciones con mercado | Manual |
+| `PRO-REG-46` | Ingreso de MP por proveedor: enlaza lote de proveedor con lote SW | `sincronizar_lab.py`, automático |
 
 Ciclo completo:
 
@@ -208,8 +215,12 @@ fallar en silencio.
 **Trabajo pendiente:**
 
 - Aplicar a mano en el SQL Editor, antes de la próxima carga a Postgres:
-  `20260807130000_bloqueos_wps.sql` y `20260807130100_bloqueos_criterio_binomio.sql`.
-  (Las de `motivo_operativo` y su versión de criterios ya se aplicaron el 07/08/2026.)
+  `20260807140000_bloqueos_materia_prima.sql`. (Las de `motivo_operativo`, `wps` y sus
+  versiones de criterios ya se aplicaron el 07/08/2026.)
+- **La cobertura del cruce de materia prima está a medias y depende del laboratorio:**
+  el `PRO-REG-46` solo existe para 2026, y CERMAQ, AQUA CHILE e INVERMAR no tienen hoja.
+  245 de 354 lotes de MP no se pueden arrastrar. Conseguir el registro de 2025 y las
+  hojas faltantes es lo que más subiría la cobertura, y no es trabajo de código.
 - Rotar la clave `sb_secret_` que quedó expuesta en un chat.
 - Invitar a las 14 personas autorizadas.
 - Automatizar el motor en GitHub Actions.

@@ -111,6 +111,12 @@ ARCH_OPERATIVO = "Bloqueo 2026.xlsm"
 ARCH_SALIDA = "BLOQUEOS - Cruce Stock vs LAB-REG-08.xlsx"
 ARCH_HTML = "CONSULTA BLOQUEOS.html"
 GLOB_LAB = "LAB-REG-08*.xlsx"
+
+# PRO-REG-46: ingreso de materia prima por proveedor. Es lo unico que enlaza el
+# lote del proveedor con el lote SW del producto elaborado, y por lo tanto lo
+# unico que permite arrastrar el bloqueo de una materia prima a lo que se hizo
+# con ella. Una hoja por proveedor.
+GLOB_MP = "*PRO-REG-46*.xlsx"
 DIR_HISTORIAL = "historial"
 
 
