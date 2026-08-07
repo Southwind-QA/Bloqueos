@@ -19,20 +19,34 @@ todo en leer los xlsx.
 
 ## El principio que ordena todo
 
-Hay **dos orígenes de bloqueo con naturaleza distinta**, y mezclarlos es el error
-que este diseño evita:
+Hay **dos naturalezas de bloqueo distintas**, y mezclarlas es el error que este
+diseño evita:
 
 | | Qué es | Quién lo escribe | Se recalcula |
 |---|---|---|---|
 | **Laboratorio** | Derivado de los resultados y los criterios | El motor | Entero, en cada corrida |
-| **Detención** | Declarado por correo ante una desviación | Personas | Nunca, solo se agrega |
+| **Detención** | Declarada por correo ante una desviación | Personas | Nunca, solo se agrega |
+| **Registro operativo** | Declarado en `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
 
 Sus valores por omisión son **opuestos**, y eso es deliberado:
 
 - Sin resultado de laboratorio, un lote **no** está bloqueado por laboratorio.
-- Con una detención abierta, sigue bloqueado. **La ausencia de evidencia no libera.**
+- Con un bloqueo declarado abierto, sigue bloqueado. **La ausencia de evidencia
+  no libera.**
 
-Los dos orígenes se acumulan: un lote con ambos tiene que cerrar los dos.
+Los tres orígenes se acumulan: un lote con varios tiene que cerrarlos todos.
+
+### Lo declarado se cierra por su propio motivo
+
+Un bloqueo declarado trae escrito **por qué** se bloqueó, y solo lo levanta un
+resultado posterior que vuelva a medir *ese* criterio y salga conforme. Un
+bloqueo por listeria no se cierra con un nitrito conforme, y uno por falta de
+documentación **no se cierra con ninguna muestra**: el laboratorio no mide eso.
+
+En `Bloqueo 2026.xlsm` la columna `Estado` se escribe **únicamente al liberar**,
+así que una fila sin estado es un bloqueo vigente. La evidencia está en el
+comentario de `cruce2.py` que lee la hoja. Hoy son 2.019 lotes con bloqueo
+abierto; 137 de ellos tienen stock, con 30.550 cajas.
 
 ## Los criterios
 
@@ -44,6 +58,11 @@ visible en el diff y no haya que leer el motor.
 | **RAM** > 100.000 UFC/g | Toda línea, sin excepciones |
 | **Nitrito** < 85 ppm | Línea refrigerada, **más bacon y wheel** (salen congelados de planta pero se venden refrigerados en destino) |
 | **Listeria** presencia | Línea refrigerada siempre; línea congelada solo si el destino es **EE.UU. o Costa Rica** |
+
+Los criterios que puede levantar un motivo escrito a mano en el registro
+operativo también viven en `config.py`, en `MOTIVOS_LAB`. Ahí se traduce el texto
+libre (`presencia de LM`, `alto en ram`) al criterio que lo cierra. Un motivo que
+no calce con ninguno no es liberable contra el laboratorio.
 
 Tres reglas transversales:
 
@@ -76,7 +95,7 @@ Tres reglas transversales:
 | `FRIGORÍFICO SOUTH WIND - *.xlsx` | Stock por caja: cliente, condición, OF, producto. Los baja `descargar_fishken.py` |
 | `LAB-REG-08*.xlsx` | Resultados de laboratorio. Uno por año, con estructura levemente distinta entre años |
 | `REGISTRO DETENCIONES.xlsx` | Detenciones por correo. **Se lee, nunca se sobrescribe** |
-| `Bloqueo 2026.xlsm` | Registro operativo: liberaciones declaradas con su mercado |
+| `Bloqueo 2026.xlsm` | Registro operativo: bloqueos declarados con su motivo, y liberaciones con su mercado |
 
 Cada una tiene su propio corte, y la hoja `FUENTES` del Excel de salida lo deja
 por escrito. Un lote ausente **no es un lote liberado**: puede ser que su bodega

@@ -16,25 +16,36 @@ los resultados de laboratorio y las detenciones declaradas por correo.
 Antes de esto, la información vivía en planillas separadas y nadie podía responder
 "¿este packing list tiene producto bloqueado?" sin revisar a mano.
 
-**Al 06/08/2026:** 537 lotes evaluados, 2.381 batches, 72.779 cajas en tres bodegas.
-185 lotes bloqueados (14.048 cajas, 26.942 kg), 16 candidatos a liberar, 321 liberados.
+**Al 07/08/2026:** 2.149 lotes evaluados, 2.381 batches, 72.779 cajas en tres bodegas.
+24.154 cajas bloqueadas (48.543 kg), 11.242 candidatas a liberar, 36.592 liberadas.
+
+El salto respecto de la foto anterior (537 lotes, 14.048 cajas bloqueadas) es la
+incorporación del registro operativo como tercer origen: ver la sección 2.
 
 ---
 
 ## 2. El principio que ordena todo
 
-Hay **dos orígenes de bloqueo con naturaleza distinta**, y mezclarlos es el error que
+Hay **dos naturalezas de bloqueo distintas**, y mezclarlas es el error que
 este diseño evita:
 
 | | Qué es | Quién lo escribe | Se recalcula |
 |---|---|---|---|
 | **Laboratorio** | Derivado de los resultados y los criterios | El motor | Entero, cada corrida |
-| **Detención** | Declarado por correo ante una desviación | Personas | Nunca, solo se agrega |
+| **Detención** | Declarada por correo ante una desviación | Personas | Nunca, solo se agrega |
+| **Registro operativo** | Declarado en `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
 
 Sus valores por omisión son **opuestos**, y es deliberado:
 
 - Sin resultado de laboratorio, un lote **no** está bloqueado por laboratorio.
-- Con una detención abierta, sigue bloqueado. **La ausencia de evidencia no libera.**
+- Con un bloqueo declarado abierto, sigue bloqueado. **La ausencia de evidencia no
+  libera.**
+
+**Lo declarado se cierra por su propio motivo.** Un bloqueo por listeria no lo levanta
+un nitrito conforme, y uno por falta de documentación no lo levanta ninguna muestra:
+el laboratorio no mide eso. La traducción de motivo escrito a criterio vive en
+`config.py`, en `MOTIVOS_LAB`, y la propuesta deja dicho que el criterio se **infirió
+del texto** — a diferencia de las detenciones, donde lo declara una persona.
 
 Esa línea se sostiene hasta en la base de datos: el rol `motor_bloqueos` no tiene
 permiso de escritura sobre detenciones, decisiones ni criterios. Una corrida mala no
@@ -92,6 +103,12 @@ Todas se descubrieron rompiendo algo. No las deshagas.
 - **El sufijo `*NNL`** de los lotes del laboratorio (semana y turno) sí es descartable.
 - **Un lote ausente no es un lote liberado.** Puede que su bodega se exportara antes
   de que ingresara.
+- **En `Bloqueo 2026.xlsm` el `Estado` se escribe solo al liberar.** Una fila sin estado
+  es un bloqueo vigente, no una fila incompleta. Las 420 filas `liberado` tienen todas
+  fecha de liberación y las 2.591 sin estado ninguna, sin una sola excepción; el 95% de
+  estas trae motivo escrito. Las 1.734 que dicen `Bloqueado` son un bloque contiguo de
+  producción 2024–enero 2025, de la convención anterior: ahí hasta la columna
+  `FECHA BLOQUEO` trae el motivo en texto en vez de una fecha.
 - Hay confusiones de tipeo reales: `25281S0W` contra `25281SOW` (cero contra O), y
   lotes sin prefijo conviviendo con su gemelo prefijado.
 
@@ -105,7 +122,7 @@ Todas se descubrieron rompiendo algo. No las deshagas.
 | LAB-REG-08 | Resultados de laboratorio, uno por año | `sincronizar_lab.py`, automático |
 | `REGISTRO DETENCIONES.xlsx` | Detenciones por correo | Manual, y así debe ser |
 | `REGISTRO DECISIONES.xlsx` | Liberaciones firmadas | Manual, y así debe ser |
-| `Bloqueo 2026.xlsm` | Registro operativo: liberaciones declaradas con mercado | Manual |
+| `Bloqueo 2026.xlsm` | Bloqueos declarados con su motivo, y liberaciones con mercado | Manual |
 
 Ciclo completo:
 
@@ -159,6 +176,8 @@ fallar en silencio.
 | La etiqueta visible como clave primaria | `duplicate key` al cargar | La clave es el código normalizado |
 | Detectar el login por ausencia del formulario | Login correcto daba "credenciales inválidas" | Fishken devuelve la misma pantalla con un `window.open` |
 | Dos copias del mismo año del LAB-REG-08 | Se detectó al sincronizar | Habría duplicado 2.432 muestras sin avisar |
+| La consulta de packing list no miraba el registro operativo | Al incorporarlo: un lote bloqueado por correo con laboratorio conforme salía LIBERADO | La consulta resuelve contra el lab; cada origen nuevo hay que llevarlo **también** ahí, o el agujero queda justo en la pregunta que más se hace |
+| Leer las filas sin estado como si no existieran | 18.221 cajas figuraban liberadas, 11.551 de ellas declaradas por listeria | Una columna vacía es un dato: hay que averiguar qué convención la deja vacía antes de ignorarla |
 
 ---
 
@@ -166,20 +185,25 @@ fallar en silencio.
 
 **Preguntas sin responder que bloquean trabajo:**
 
-1. **Las 2.591 filas sin estado en `Bloqueo 2026.xlsm`.** Son 16.091 cajas cuyo bloqueo
-   no se puede interpretar. ¿Estar en esa hoja ya significa bloqueado, o el estado tiene
-   que estar escrito? Cambia el resultado por completo.
-2. **Quién puede firmar.** `puede_firmar` está en `false` para todos, así que hoy nadie
+1. **Quién puede firmar.** `puede_firmar` está en `false` para todos, así que hoy nadie
    puede ejecutar una liberación. El `update` está al final de la migración de personas.
-3. **Qué son VILA y VIMU**, y si las bodegas de inventario son stock real o un conteo
+   Ahora urge más: hay 11.242 cajas candidatas esperando firma.
+2. **Qué son VILA y VIMU**, y si las bodegas de inventario son stock real o un conteo
    paralelo. Si es lo segundo, sumarlas duplicaría.
-4. **44 lotes con conflicto**: figuran liberados en el registro operativo pero el
+3. **44 lotes con conflicto**: figuran liberados en el registro operativo pero el
    laboratorio mantiene un incumplimiento vigente. 2.866 cajas.
-5. **Las liberaciones declaradas se detienen el 19/12/2025.** Siete meses sin registrar
-   ninguna, con 118 concentradas ese día.
+4. **Las liberaciones declaradas se detienen el 19/12/2025.** Siete meses sin registrar
+   ninguna, con 118 concentradas ese día. Esto ahora **bloquea producto**: si un bloqueo
+   se levantó sin escribirlo, el motor lo sigue dando por abierto. Es la dirección
+   conservadora, pero conviene ponerse al día con el registro.
+5. **24 filas con fecha de bloqueo futura** (hasta 16/07/2027), probable tipeo de año.
+   Quedan bloqueadas sin forma de liberarse, porque ninguna muestra puede ser posterior.
+   El motor lo avisa por consola y en la propuesta; la corrección va en el xlsm.
 
 **Trabajo pendiente:**
 
+- Aplicar `supabase/migrations/20260806120800_bloqueos_motivo_operativo.sql` a mano en
+  el SQL Editor, como las anteriores, antes de la próxima carga a Postgres.
 - Rotar la clave `sb_secret_` que quedó expuesta en un chat.
 - Invitar a las 14 personas autorizadas.
 - Automatizar el motor en GitHub Actions.

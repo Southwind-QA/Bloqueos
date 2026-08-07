@@ -57,6 +57,28 @@ BACON_WHEEL = r"\bbacon\b|\bwheel\b"
 TXT_REFRIGERADA = "refrigerad"
 TXT_CONGELADA = ("carpaccio", "congelad")
 
+# ------------------------------------------------------------------ motivos declarados
+#
+# El registro operativo (Bloqueo 2026.xlsm) anota el motivo del bloqueo en texto
+# libre. Esta tabla traduce ese texto al criterio de laboratorio que puede
+# levantarlo: un bloqueo por listeria se cierra con listeria posterior conforme,
+# no con un nitrito conforme.
+#
+# Es lo mismo que la columna CRITERIOS DE LIBERACION del registro de detenciones,
+# con una diferencia que hay que tener presente: alla lo declara una persona y
+# aca se infiere del texto. Por eso la propuesta deja constancia de que el
+# criterio fue inferido.
+MOTIVOS_LAB = (
+    (r"listeria|\bl\.?\s?m\.?\b|\blm\b", "LISTERIA"),
+    (r"\bram\b|recuento|aerobio|mesofil", "RAM"),
+    (r"nitrito", "NITRITO"),
+)
+
+# Un motivo que no calza con ninguna expresion de arriba NO es liberable contra
+# el laboratorio: falta de documentacion, un reclamo de cliente o un desvio de
+# proceso no se cierran con una muestra conforme. Quedan bloqueados hasta que
+# Calidad firme la liberacion. La ausencia de evidencia no libera.
+
 # ------------------------------------------------------------------ origenes
 # Los LAB-REG-08 los edita el laboratorio en su carpeta de registros. Se copian
 # desde ahi antes de cada corrida en vez de que alguien los traiga a mano: asi
@@ -84,4 +106,5 @@ def ruta(*partes):
 def huella_criterios():
     return (f"listeria=refrigerada+congelada(EEUU|CostaRica); ram>{LIM_RAM}; "
             f"nitrito<{LIM_NITRITO} en refrigerada y en bacon/wheel; "
-            "vigencia=ultimo resultado que cubre el criterio")
+            "vigencia=ultimo resultado que cubre el criterio; "
+            "registro operativo=bloquea por su motivo hasta liberacion declarada")

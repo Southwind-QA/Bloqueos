@@ -117,6 +117,7 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
 .tag.RAM{background:var(--t-ram);color:var(--c-ram)}
 .tag.NITRITO{background:var(--t-nitrito);color:var(--c-nitrito)}
 .tag.DETENCION{background:var(--t-serious);color:var(--serious)}
+.tag.REGISTRO{background:var(--t-warning);color:var(--warning)}
 .why{font-size:12.5px;line-height:1.5}
 .why .hd{font-weight:620;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
 .note{color:var(--ink-2);font-size:12px;margin-top:3px}
@@ -297,7 +298,8 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { db: { schema: 'bloqueos' }
 const MIN = 8;
 const CAUSAS = [
   {k:'LISTERIA', nm:'Listeria', c:'listeria'}, {k:'RAM', nm:'RAM', c:'ram'},
-  {k:'NITRITO', nm:'Nitrito', c:'nitrito'}, {k:'DETENCION', nm:'Detención', c:'det'}];
+  {k:'NITRITO', nm:'Nitrito', c:'nitrito'}, {k:'DETENCION', nm:'Detención', c:'det'},
+  {k:'REGISTRO', nm:'Registro operativo', c:'ope'}];
 const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
              'LIBERADO POR DECISION':4,'LIBERADO':5};
 const VIEWS = [['consulta','Consulta con packing list'],['stock','Estado de stock'],['buscar','Buscar']];
@@ -392,7 +394,12 @@ async function traerTodo(tabla, pagina = 1000){
 const tiles = a => '<div class="tiles">'+a.map(([k,v])=>
   `<div class="tile"><b>${typeof v==='number'?nf(v):esc(v)}</b><span>${esc(k)}</span></div>`).join('')+'</div>';
 const emparenta = (a,b) => a && b && a.length>=MIN && b.length>=MIN && (a.startsWith(b)||b.startsWith(a));
-const causasDe = o => (o.causas||[]).concat(o.motivo_detencion?['DETENCION']:[]);
+const causasDe = o => (o.causas||[]).concat(o.motivo_detencion?['DETENCION']:[])
+  .concat(o.motivo_operativo?['REGISTRO']:[]);
+// El laboratorio no sabe nada del registro operativo: sin esto un lote bloqueado por
+// correo con laboratorio conforme saldria LIBERADO en la consulta de packing list.
+const opesDe = q => q && q.length>=MIN
+  ? L.filter(o=>o.motivo_operativo && emparenta(o.normalizado, q)) : [];
 
 function porque(o){
   let h = '';
@@ -400,6 +407,8 @@ function porque(o){
   if(t) h += `<div>${t}</div>`;
   if(o.motivo_lab) h += `<div><span class="hd">Lab</span> ${esc(o.motivo_lab)}</div>`;
   if(o.motivo_detencion) h += `<div><span class="hd">Detención</span> ${esc(o.motivo_detencion)}</div>`;
+  if(o.motivo_operativo) h += `<div><span class="hd">Registro operativo</span> ${esc(o.motivo_operativo)}`+
+    (o.operativo_bloquea?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>';
   if(o.motivo_liberacion) h += `<div class="note"><b>Por qué quedó así:</b> ${esc(o.motivo_liberacion)}</div>`;
   if(o.historia_remuestreo) h += `<div class="note"><b>Re-muestreo:</b> ${esc(o.historia_remuestreo)}</div>`;
   if(o.linea) h += `<div class="note">Línea ${esc(o.linea)}`+
@@ -421,20 +430,27 @@ function resolver(tok){
 }
 function estadoLinea(x){
   if(!x.cand) return 'SIN LOTE';
-  if(!x.r) return 'SIN RESULTADO DE LAB';
+  // Un bloqueo declarado manda sobre un laboratorio conforme: el origen es otro y
+  // solo lo cierra una liberacion explicita.
+  const decl = (x.ops||[]).some(o=>o.operativo_bloquea);
+  if(!x.r) return decl ? 'BLOQUEADO' : 'SIN RESULTADO DE LAB';
   let e = x.r.hits.map(h=>h.estado).sort((a,b)=>ORD[a]-ORD[b])[0];
   if(x.r.nivel==='APROXIMADO' && e!=='BLOQUEADO' && e!=='PNC') e = 'SIN RESULTADO DE LAB';
-  return e;
+  const firme = e==='BLOQUEADO' || e==='PNC' || e==='LIBERADO POR DECISION';
+  return (!firme && decl) ? 'BLOQUEADO' : e;
 }
 function detalleLinea(x){
   if(!x.cand) return '<span class="mut">No hay ningún código con forma de lote. Probablemente es una '+
     'cabecera, un subtotal o un separador.</span>';
-  if(!x.r) return '<div class="why"><div><b>El laboratorio aún no tiene resultado para este lote.</b></div>'+
+  const op = (x.ops||[]).map(o=>`<div><span class="tag REGISTRO">Registro operativo</span>`+
+    (o.normalizado!==norm(x.cand)?`<span class="mono">${esc(o.lote)}</span> `:'')+esc(o.motivo_operativo)+
+    (o.operativo_bloquea?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>').join('');
+  if(!x.r) return '<div class="why">'+op+'<div><b>El laboratorio aún no tiene resultado para este lote.</b></div>'+
     '<div class="note">No es una liberación: puede ser producción posterior al corte del registro, o el '+
     'lote está mal escrito. Verificar antes de despachar.</div></div>';
   const {nivel, hits} = x.r;
   const relev = hits.filter(b=>b.estado!=='LIBERADO' && b.estado!=='SIN ANALISIS');
-  let h = '';
+  let h = op;
   if(nivel==='LOTE BASE') h += `<div class="note">Pegaste el <b>lote base</b>. El laboratorio tiene `+
     `${hits.length} batch(es)`+(relev.length?`: <b>${relev.length} con incumplimiento o candidato</b>.`:', todos conformes.')+'</div>';
   if(nivel==='APROXIMADO') h += '<div><b>El laboratorio no tiene resultado para ese batch.</b></div>'+
@@ -462,7 +478,7 @@ window.correr = () => {
     let r=null, cand='';
     for(const t of toks){const m=resolver(t); if(m){r=m; cand=t; break;}}
     if(!r) cand = toks[0]||'';
-    out.push({linea, cand, r});
+    out.push({linea, cand, r, ops: opesDe(norm(cand))});
   }
   ULT = out;
   $('btnCopiarPL').hidden = $('btnExcelPL').hidden = !out.length;
@@ -495,7 +511,8 @@ window.pintaStock = () => {
   let base = L.filter(o=>g.includes(o.estado));
   if($('soloStock').checked) base = base.filter(o=>o.en_stock);
   const f = $('f2').value.toLowerCase().trim();
-  if(f) base = base.filter(o=>[o.lote,o.motivo_lab,o.motivo_detencion,(o.bodegas||[]).join(' '),
+  if(f) base = base.filter(o=>[o.lote,o.motivo_lab,o.motivo_detencion,o.motivo_operativo,
+    (o.bodegas||[]).join(' '),
     (o.productos||[]).join(' '),(o.clientes||[]).join(' '),o.observaciones].join(' ').toLowerCase().includes(f));
   $('chips').innerHTML = CAUSAS.map(c=>{
     const m = base.filter(o=>causasDe(o).concat(o.causas_remuestreo||[]).includes(c.k));
@@ -538,23 +555,25 @@ function tabla(d){
 function filasExportables(vista){
   if(vista === 'pl'){
     const cab = ['LINEA','LOTE DETECTADO','MATCH','ESTADO','CAUSAS','MOTIVO LAB',
-                 'MOTIVO DETENCION','RE-MUESTREO','MUESTRAS','ULTIMA MUESTRA','PRESENTACION'];
+                 'MOTIVO DETENCION','MOTIVO REGISTRO OPERATIVO','RE-MUESTREO','MUESTRAS',
+                 'ULTIMA MUESTRA','PRESENTACION'];
     const filas = [];
     for(const x of ULT){
-      const e = estadoLinea(x);
-      if(!x.r){filas.push([x.linea, x.cand, '', e, '', '', '', '', '', '', '']); continue;}
+      const e = estadoLinea(x), op = (x.ops||[]).map(o=>o.motivo_operativo).join(' | ');
+      if(!x.r){filas.push([x.linea, x.cand, '', e, '', '', '', op, '', '', '', '']); continue;}
       for(const b of x.r.hits)
         filas.push([x.linea, b.batch, x.r.nivel, b.estado, (b.causas||[]).join('+'),
-                    b.motivo_lab, b.motivo_detencion, b.remuestreo, b.n_muestras,
+                    b.motivo_lab, b.motivo_detencion, op, b.remuestreo, b.n_muestras,
                     b.ultima_muestra, b.presentacion]);
     }
     return {cab, filas, nombre:'packing_list_vs_lab'};
   }
-  const cab = ['LOTE','ESTADO','CAUSAS','MOTIVO LAB','MOTIVO DETENCION','MOTIVO LIBERACION',
+  const cab = ['LOTE','ESTADO','CAUSAS','MOTIVO LAB','MOTIVO DETENCION',
+               'MOTIVO REGISTRO OPERATIVO','MOTIVO LIBERACION',
                'LINEA','DESTINO','EN BODEGA','BODEGAS','PRODUCTOS','CLIENTES','CAJAS','KG'];
   return {cab, nombre:'estado_de_stock', filas: ULT_STOCK.map(o=>[
     o.lote, o.estado, causasDe(o).join('+'), o.motivo_lab, o.motivo_detencion,
-    o.motivo_liberacion, o.linea, o.destino_restringido, o.en_stock?'SI':'NO',
+    o.motivo_operativo, o.motivo_liberacion, o.linea, o.destino_restringido, o.en_stock?'SI':'NO',
     (o.bodegas||[]).join(' / '), (o.productos||[]).join(' / '), (o.clientes||[]).join(' / '),
     o.cajas, Math.round(o.kg||0)])};
 }

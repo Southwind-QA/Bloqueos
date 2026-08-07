@@ -118,18 +118,20 @@ with psycopg.connect(URL, autocommit=False) as cx:
 
         cur.executemany(
             """insert into lote (lote, normalizado, estado, origen_bloqueo, causas,
-                 causas_remuestreo, motivo_lab, motivo_detencion, motivo_liberacion,
+                 causas_remuestreo, motivo_lab, motivo_detencion, motivo_operativo,
+                 operativo_bloquea, motivo_liberacion,
                  por_criterio, evidencia, historia_remuestreo, linea, destino_restringido,
                  liberacion_declarada, mercados_liberados, fuente_liberacion, en_stock,
                  bodegas, productos, clientes, cajas, kg, piezas,
                  batches_con_resultado, batches_no_conformes, n_muestras, ultima_muestra,
                  observaciones, corrida_id)
                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       %s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             [(txt(r["LOTE"]), txt(r["LOTE (normalizado)"]), txt(r["ESTADO"]),
               txt(r["ORIGEN DEL BLOQUEO"]), lista(r["CAUSAS LAB"]),
               lista(r["CAUSAS CON REMUESTREO CONFORME"]), txt(r["MOTIVO - LABORATORIO"]),
-              txt(r["MOTIVO - DETENCION"]), txt(r["MOTIVO DE LA LIBERACION"]),
+              txt(r["MOTIVO - DETENCION"]), txt(r["MOTIVO - REGISTRO OPERATIVO"]),
+              txt(r["REGISTRO OPERATIVO BLOQUEA"]) == "SI", txt(r["MOTIVO DE LA LIBERACION"]),
               psycopg.types.json.Jsonb(dict(
                   p.split("=") for p in str(txt(r["ESTADO POR CRITERIO"]) or "").split("; ") if "=" in p)),
               txt(r["EVIDENCIA (ultimas muestras)"]), txt(r["HISTORIA DEL RE-MUESTREO"]),
