@@ -47,11 +47,20 @@ MP por proveedor) es lo único que las enlaza con el producto.
 A la materia prima solo le aplican **listeria y RAM** — no trae nitrito ni WPS, así
 que el binomio no tiene nada que evaluar ahí.
 
-El bloqueo se levanta con un re-muestreo conforme de *esa misma* materia prima, o
-con una decisión firmada. **Que el producto terminado haya salido conforme después
-no lo libera solo**: el proceso es justamente lo que controla lo que traía la
-materia prima, y esa lectura la firma Calidad. El argumento queda escrito en la
-propuesta para que quien firme no tenga que ir a buscarlo.
+**Lo que ya tiene con qué liberarse queda `CANDIDATO A LIBERAR`, no bloqueado.**
+Son tres caminos, y en los tres lo único que falta es la firma:
+
+1. La materia prima se **re-muestreó conforme** después.
+2. El **producto terminado** tiene resultado propio posterior conforme en *todo* lo
+   que la materia prima traía mal. El proceso —ahumado, altas presiones— es
+   justamente lo que controla lo que venía en la materia prima.
+3. Lo que falló fue **listeria y al producto no le aplica**, por ser línea congelada
+   sin destino EE.UU. ni Costa Rica. Es la misma regla de listeria de siempre,
+   aplicada al bloqueo heredado.
+
+Si el respaldo del producto cubre solo parte de lo que falló, sigue bloqueado y la
+propuesta dice qué criterio quedó sin cubrir. El argumento siempre queda escrito,
+para que quien firme no tenga que ir a buscarlo al Excel.
 
 **Cobertura:** se cargan los `PRO-REG-46` de 2023 a 2026 desde `\\192.168.2.201`,
 donde los lleva producción. Con eso, 318 de los 354 lotes de MP del laboratorio

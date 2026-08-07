@@ -17,13 +17,11 @@ Antes de esto, la información vivía en planillas separadas y nadie podía resp
 "¿este packing list tiene producto bloqueado?" sin revisar a mano.
 
 **Al 07/08/2026:** 2.153 lotes evaluados, 2.384 batches, 72.779 cajas en tres bodegas.
-42.312 cajas bloqueadas (75.446 kg), 4.083 candidatas a liberar, 25.637 liberadas.
+26.689 cajas bloqueadas, 19.706 candidatas a liberar, 25.637 liberadas.
 
-Más de la mitad del stock queda bloqueado, y el origen que más pesa es la **materia
-prima**: 88 lotes y 19.333 cajas donde es la única causa. De esos, 50 lotes (15.915
-cajas) tienen su propio análisis de producto terminado con listeria conforme, y siguen
-bloqueados a la espera de firma porque así se definió. Si esa lectura cambia, es una
-línea en el consolidado de `cruce2.py`.
+Las 19.706 candidatas son el número que importa: **producto que ya tiene con qué
+liberarse y solo espera una firma que hoy nadie puede dar**, porque `puede_firmar`
+está en `false` para todos. 95 lotes con stock, casi todos por materia prima.
 
 El salto respecto de la foto anterior (537 lotes, 14.048 cajas bloqueadas) son dos
 orígenes nuevos incorporados el 07/08/2026 —el registro operativo y la materia
@@ -205,7 +203,8 @@ fallar en silencio.
 
 1. **Quién puede firmar.** `puede_firmar` está en `false` para todos, así que hoy nadie
    puede ejecutar una liberación. El `update` está al final de la migración de personas.
-   Ahora urge más: hay 11.242 cajas candidatas esperando firma.
+   Es lo que más urge: hay **19.706 cajas candidatas** esperando una firma que nadie
+   puede dar. Todo lo demás que se construyó desemboca ahí.
 2. **Qué son VILA y VIMU**, y si las bodegas de inventario son stock real o un conteo
    paralelo. Si es lo segundo, sumarlas duplicaría.
 3. **44 lotes con conflicto**: figuran liberados en el registro operativo pero el

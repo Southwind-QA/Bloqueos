@@ -823,20 +823,42 @@ if len(mp):
         print("     " + ", ".join(f"{k}={v}" for k, v in _prov_sin.items()))
 
 
-def materia_prima(clave):
+def aplica_listeria(clave, rows_lab):
+    """Si el criterio de listeria aplica a este lote, con la misma regla de siempre.
+
+    Refrigerada siempre; congelada solo con destino EE.UU. o Costa Rica. Manda la
+    clasificacion del laboratorio y, si el lote no tiene muestras propias, la
+    condicion de bodega. Sin poder determinar linea ni destino, aplica: no se
+    exime un criterio por falta de informacion.
+    """
+    if len(rows_lab):
+        return bool(rows_lab["_LIS_APLICA"].any())
+    d = destino_restringido(clave)
+    return linea_stock(clave) != "CONGELADA" or d is None or d != ""
+
+
+def materia_prima(clave, aplica_lis=True):
     """Materias primas no conformes con las que se elaboro este lote.
 
-    Devuelve (motivos, propuestas, n_bloquean, n_candidatas). El bloqueo de una
-    materia prima NO lo levanta un resultado conforme del producto terminado: eso
-    deja el lote como candidato y la firma es de Calidad.
+    Devuelve (motivos, propuestas, n_bloquean, n_candidatas, fecha_falla, criterios).
+
+    Dos cosas dejan el lote en CANDIDATO A LIBERAR en vez de BLOQUEADO, porque ya
+    tienen con que liberarse y lo unico que falta es la firma:
+
+      - la materia prima se re-muestreo conforme despues;
+      - el criterio que fallo fue listeria y al producto elaborado no le aplica,
+        por ser linea congelada sin destino EE.UU. ni Costa Rica.
+
+    El tercer caso -que el producto terminado tenga resultado propio conforme
+    posterior- se resuelve fuera, porque necesita las muestras del producto.
     """
     if not MP_DE_SW:
-        return [], [], 0, 0, pd.NaT
+        return [], [], 0, 0, pd.NaT, set()
     mps = set()
     for sw, ps in MP_DE_SW.items():
         if emparenta(sw, clave):
             mps |= ps
-    motivos, propuestas, nb, nc, falla = [], [], 0, 0, pd.NaT
+    motivos, propuestas, nb, nc, falla, crit = [], [], 0, 0, pd.NaT, set()
     for p in sorted(mps):
         est = MP_ESTADO.get(p)
         if not est:
@@ -845,21 +867,32 @@ def materia_prima(clave):
         malos = [c for c in CRIT_MP if est[c]["estado"] == "NO CONFORME"]
         rems = [c for c in CRIT_MP if est[c]["estado"] == "REMUESTREO CONFORME"]
         etq = f"MP {p}" + (f" ({prov})" if prov else "")
+        exime = [c for c in malos if c == "LISTERIA" and not aplica_lis]
+        malos = [c for c in malos if c not in exime]
         if malos:
             nb += 1
+            crit |= set(malos)
             motivos.append(f"{etq}: " + "; ".join(est[c]["txt"] for c in malos))
             propuestas.append(f"{etq}: NO LIBERABLE - la materia prima mantiene "
                               f"{', '.join(malos)} sin re-muestreo conforme posterior")
             for c in malos:
                 if pd.notna(est[c]["falla"]) and (pd.isna(falla) or est[c]["falla"] > falla):
                     falla = est[c]["falla"]
+        elif exime:
+            nc += 1
+            motivos.append(f"{etq}: " + "; ".join(est[c]["txt"] for c in exime)
+                           + " (no aplica a este producto)")
+            propuestas.append(f"{etq}: LIBERABLE - la materia prima traia listeria, pero "
+                              "el producto es de linea congelada sin destino EE.UU. ni "
+                              "Costa Rica, donde el criterio no se exige. Requiere firma "
+                              "de Calidad.")
         elif rems:
             nc += 1
             motivos.append(f"{etq}: " + "; ".join(est[c]["txt"] for c in rems))
             propuestas.append(f"{etq}: LIBERABLE segun lab - la materia prima tiene "
                               f"re-muestreo conforme posterior en {', '.join(rems)}. "
                               "Requiere firma de Calidad.")
-    return motivos, propuestas, nb, nc, falla
+    return motivos, propuestas, nb, nc, falla, crit
 
 
 # ----------------------------------------------------------------- universo de lotes
@@ -1069,23 +1102,38 @@ for l in universo:
     propuestas += propuestas_ope
 
     # ---- materia prima: lo que estaba bloqueado antes de entrar a proceso
-    motivos_mp, propuestas_mp, mp_pend, mp_cand, mp_falla = materia_prima(l)
-    propuestas += propuestas_mp
+    motivos_mp, propuestas_mp, mp_pend, mp_cand, mp_falla, mp_crit = materia_prima(
+        l, aplica_listeria(l, rows_lab))
     # El proceso -ahumado, altas presiones- es justamente lo que controla lo que
-    # traia la materia prima. Cuando el producto ya se analizo despues y salio
-    # conforme, el bloqueo sigue en pie pero el argumento para levantarlo queda a
-    # la vista de quien firma, en vez de obligarlo a ir a buscarlo al Excel.
+    # traia la materia prima. Si el producto ya se analizo despues y salio conforme
+    # en TODO lo que la materia prima traia mal, el lote esta listo para liberarse
+    # y lo unico que falta es la firma: candidato, no bloqueado.
     if mp_pend and pd.notna(mp_falla) and len(rows_lab):
         _post = rows_lab[rows_lab["_FECHA"] > mp_falla]
         if len(_post):
             _rp, _ = evalua(_post)
-            _ok = [c for c in CRIT_MP if not any(incumple(_rp, c)[:2])]
-            if _ok:
+            _ok = {c for c in CRIT_MP if not any(incumple(_rp, c)[:2])}
+            if mp_crit and mp_crit <= _ok:
+                mp_cand += mp_pend
+                mp_pend = 0
                 propuestas.append(
                     f"Materia prima: el producto terminado tiene {len(_post)} muestra(s) "
-                    f"posterior(es) al {mp_falla:%d/%m/%Y} conforme(s) en {', '.join(_ok)}. "
-                    "No libera sola: el bloqueo viene de la materia prima y solo lo cierra "
-                    "una decision firmada de Calidad.")
+                    f"posterior(es) al {mp_falla:%d/%m/%Y} conforme(s) en "
+                    f"{', '.join(sorted(mp_crit))}, que es lo que la materia prima traia "
+                    "mal. Queda listo para liberar, pero no se libera solo: la firma es "
+                    "de Calidad.")
+            elif _ok:
+                propuestas.append(
+                    f"Materia prima: el producto terminado dio conforme en "
+                    f"{', '.join(sorted(_ok))}, pero eso no cubre "
+                    f"{', '.join(sorted(mp_crit - _ok))}, que es lo que fallo en la "
+                    "materia prima. Sigue bloqueado.")
+    if not mp_pend:
+        # ya no bloquea: el "NO LIBERABLE" describiria el estado de la materia prima,
+        # pero se lee como el veredicto del lote y lo contradice
+        propuestas_mp = [p.replace("NO LIBERABLE - la materia prima mantiene",
+                                   "La materia prima mantiene") for p in propuestas_mp]
+    propuestas += propuestas_mp
 
     # ---- estado consolidado
     # Los origenes se acumulan y cada uno tiene que cerrarse por su cuenta.
