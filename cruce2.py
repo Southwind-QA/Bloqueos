@@ -206,11 +206,21 @@ def laxo_prov(s):
 
 
 # ---- PRO-REG-46: una hoja por proveedor, lote de proveedor -> lote SW
-MP_DE_SW, PROV_46, _f46 = {}, {}, []
+MP_DE_SW, PROV_46, _f46, _anios46 = {}, {}, [], {}
 for f in sorted(glob.glob(config.ruta(config.GLOB_MP))):
-    if os.path.basename(f).startswith("~$"):
+    n46 = os.path.basename(f)
+    if n46.startswith("~$"):
         continue
-    _f46.append(os.path.basename(f))
+    # Un anio cargado dos veces cuenta cada ingreso dos veces. Paso lo mismo con
+    # el LAB-REG-08 y se detecto tarde: aqui se corta al entrar.
+    _a = re.search(r"\b(20\d\d)\b", n46)
+    _a = _a.group(1) if _a else n46
+    if _a in _anios46:
+        print(f"  (PRO-REG-46 OMITIDO por duplicar {_a}): {n46}")
+        print(f"      ya se cargo desde {_anios46[_a]}. Borra el que sobre.")
+        continue
+    _anios46[_a] = n46
+    _f46.append(n46)
     try:
         xls46 = pd.ExcelFile(f)
     except Exception as e:                                          # noqa: BLE001
@@ -230,8 +240,8 @@ for f in sorted(glob.glob(config.ruta(config.GLOB_MP))):
                 PROV_46[laxo_prov(p)] = hoja
 
 if _f46:
-    print(f"  materias primas: {os.path.basename(_f46[0])} -> {len(MP_DE_SW)} lotes SW "
-          f"enlazados con {len(PROV_46)} lotes de proveedor")
+    print(f"  materias primas: {len(_f46)} PRO-REG-46 ({', '.join(sorted(_anios46))}) -> "
+          f"{len(MP_DE_SW)} lotes SW enlazados con {len(PROV_46)} lotes de proveedor")
 else:
     print("  (sin PRO-REG-46: no se puede arrastrar el bloqueo de materia prima)")
 

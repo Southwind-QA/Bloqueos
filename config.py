@@ -105,6 +105,13 @@ DIR_LAB = os.environ.get(
     "BLOQUEOS_DIR_LAB",
     r"C:\Users\Usuario\Documents\doc_BRC\SSCA\REGISTROS\LABORATORIO\Registro En Linea")
 
+# El PRO-REG-46 lo lleva produccion, no el laboratorio, y vive en el servidor.
+# Ahi esta la version al dia y los anios anteriores; la copia que hay en la
+# carpeta del laboratorio se queda atras.
+DIR_MP = os.environ.get(
+    "BLOQUEOS_DIR_MP",
+    r"\\192.168.2.201\productivo\TRASPASOS DE MP A PLANTA")
+
 # ------------------------------------------------------------------ archivos
 ARCH_DETENCIONES = "REGISTRO DETENCIONES.xlsx"
 ARCH_OPERATIVO = "Bloqueo 2026.xlsm"
@@ -112,11 +119,15 @@ ARCH_SALIDA = "BLOQUEOS - Cruce Stock vs LAB-REG-08.xlsx"
 ARCH_HTML = "CONSULTA BLOQUEOS.html"
 GLOB_LAB = "LAB-REG-08*.xlsx"
 
-# PRO-REG-46: ingreso de materia prima por proveedor. Es lo unico que enlaza el
-# lote del proveedor con el lote SW del producto elaborado, y por lo tanto lo
-# unico que permite arrastrar el bloqueo de una materia prima a lo que se hizo
-# con ella. Una hoja por proveedor.
-GLOB_MP = "*PRO-REG-46*.xlsx"
+# PRO-REG-46: ingreso de materia prima por proveedor, uno por anio. Es lo unico
+# que enlaza el lote del proveedor con el lote SW del producto elaborado, y por
+# lo tanto lo unico que permite arrastrar el bloqueo de una materia prima a lo
+# que se hizo con ella. Una hoja por proveedor.
+#
+# El patron deja fuera a proposito los archivos que empiezan con "Copia de": en
+# el servidor conviven con el original del mismo anio y cargar los dos contaria
+# cada ingreso dos veces, que es el error que ya cometimos con el LAB-REG-08.
+GLOB_MP = "INGRESO MP*PRO-REG-46*.xlsx"
 DIR_HISTORIAL = "historial"
 
 

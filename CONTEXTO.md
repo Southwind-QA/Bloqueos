@@ -17,7 +17,13 @@ Antes de esto, la información vivía en planillas separadas y nadie podía resp
 "¿este packing list tiene producto bloqueado?" sin revisar a mano.
 
 **Al 07/08/2026:** 2.153 lotes evaluados, 2.384 batches, 72.779 cajas en tres bodegas.
-34.360 cajas bloqueadas (61.439 kg), 6.701 candidatas a liberar, 30.971 liberadas.
+42.312 cajas bloqueadas (75.446 kg), 4.083 candidatas a liberar, 25.637 liberadas.
+
+Más de la mitad del stock queda bloqueado, y el origen que más pesa es la **materia
+prima**: 88 lotes y 19.333 cajas donde es la única causa. De esos, 50 lotes (15.915
+cajas) tienen su propio análisis de producto terminado con listeria conforme, y siguen
+bloqueados a la espera de firma porque así se definió. Si esa lectura cambia, es una
+línea en el consolidado de `cruce2.py`.
 
 El salto respecto de la foto anterior (537 lotes, 14.048 cajas bloqueadas) son dos
 orígenes nuevos incorporados el 07/08/2026 —el registro operativo y la materia
@@ -217,10 +223,13 @@ fallar en silencio.
 - Aplicar a mano en el SQL Editor, antes de la próxima carga a Postgres:
   `20260807140000_bloqueos_materia_prima.sql`. (Las de `motivo_operativo`, `wps` y sus
   versiones de criterios ya se aplicaron el 07/08/2026.)
-- **La cobertura del cruce de materia prima está a medias y depende del laboratorio:**
-  el `PRO-REG-46` solo existe para 2026, y CERMAQ, AQUA CHILE e INVERMAR no tienen hoja.
-  245 de 354 lotes de MP no se pueden arrastrar. Conseguir el registro de 2025 y las
-  hojas faltantes es lo que más subiría la cobertura, y no es trabajo de código.
+- **36 lotes de materia prima no figuran en ningún `PRO-REG-46`** (Ventisqueros 11,
+  Cooke 9, Australis 9, Agrosuper 3, Antártica 2, Lo Boza 2). Su bloqueo no se puede
+  arrastrar a ningún producto. Ya no es falta de archivos —se cargan 2023 a 2026— sino
+  ingresos puntuales sin registrar o mal escritos.
+- **Lo Boza tiene su propio registro, el `PRO-REG-37`**, en la misma carpeta del
+  servidor. Hoy aporta solo 2 lotes de MP, por eso se dejó fuera; si esa línea crece,
+  se incorpora con el mismo mecanismo.
 - Rotar la clave `sb_secret_` que quedó expuesta en un chat.
 - Invitar a las 14 personas autorizadas.
 - Automatizar el motor en GitHub Actions.

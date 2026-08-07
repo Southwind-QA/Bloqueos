@@ -18,14 +18,18 @@ import config
 
 
 def sincronizar():
-    origen = config.DIR_LAB
-    if not os.path.isdir(origen):
-        print(f"  (no existe {origen}: se usan las copias que ya estan en la carpeta)")
+    # Cada registro vive donde lo lleva quien lo escribe: el LAB-REG-08 en la
+    # carpeta del laboratorio y el PRO-REG-46 en la de produccion, en el servidor.
+    origenes = [(config.DIR_LAB, config.GLOB_LAB), (config.DIR_MP, config.GLOB_MP)]
+    faltan = [d for d, _ in origenes if not os.path.isdir(d)]
+    for d in faltan:
+        print(f"  (no se llega a {d}: se usan las copias que ya estan en la carpeta)")
+    origenes = [(d, p) for d, p in origenes if os.path.isdir(d)]
+    if not origenes:
         return 0
 
     copiados, saltados = 0, 0
-    patrones = (config.GLOB_LAB, config.GLOB_MP)
-    for patron in patrones:
+    for origen, patron in origenes:
         for src in sorted(glob.glob(os.path.join(origen, patron))):
             nombre = os.path.basename(src)
             if nombre.startswith("~$"):
@@ -47,7 +51,7 @@ def sincronizar():
 
     # Un original renombrado deja huerfana la copia vieja, y el cruce cargaria
     # las dos: mismo anio contado dos veces.
-    for patron in patrones:
+    for origen, patron in origenes:
         nombres_origen = {os.path.basename(x)
                           for x in glob.glob(os.path.join(origen, patron))}
         for dst in sorted(glob.glob(config.ruta(patron))):
@@ -62,5 +66,6 @@ def sincronizar():
 
 
 if __name__ == "__main__":
-    print("Sincronizando LAB-REG-08 y PRO-REG-46 desde", config.DIR_LAB)
+    print("Sincronizando LAB-REG-08 desde", config.DIR_LAB)
+    print("               PRO-REG-46 desde", config.DIR_MP)
     sincronizar()

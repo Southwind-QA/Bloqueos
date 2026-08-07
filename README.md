@@ -53,10 +53,11 @@ no lo libera solo**: el proceso es justamente lo que controla lo que traía la
 materia prima, y esa lectura la firma Calidad. El argumento queda escrito en la
 propuesta para que quien firme no tenga que ir a buscarlo.
 
-**Cobertura:** el `PRO-REG-46` existe solo para 2026 y cubre 9 proveedores. De los
-354 lotes de MP del laboratorio, 245 no figuran en él y su bloqueo no se puede
-arrastrar a ningún producto. El motor lo declara en consola y en la hoja `FUENTES`:
-un cruce parcial que no se declara se lee como cobertura total.
+**Cobertura:** se cargan los `PRO-REG-46` de 2023 a 2026 desde `\\192.168.2.201`,
+donde los lleva producción. Con eso, 318 de los 354 lotes de MP del laboratorio
+encuentran su producto; los 36 restantes no figuran en ningún registro de ingreso
+y su bloqueo no se puede arrastrar. El motor lo declara en consola y en la hoja
+`FUENTES`: un cruce parcial que no se declara se lee como cobertura total.
 
 ### Lo declarado se cierra por su propio motivo
 
