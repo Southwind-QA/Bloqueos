@@ -859,15 +859,19 @@ document.getElementById('fd2').innerHTML='<option value="">Todos</option>'+
 // guarda. Lo unico que hace es ahorrar la transcripcion, que es donde se cuelan
 // los errores de tipeo en el lote.
 const sinTilde = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g,'');
+// Cada desviacion se cierra con lo que mide lo que fallo, no con todo el panel:
+// el vencimiento en camara es tiempo y temperatura, asi que lo responde el RAM;
+// una caida al piso es contaminacion, y eso lo responde la listeria. Pedir de mas
+// no es mas seguro, solo deja la detencion abierta para siempre.
 const TIPOS_DET = [
-  [/vida\s*util|dias?\s+de\s+vida/i,               'Vida util excedida'],
-  [/curado/i,                                      'Curado excedido'],
-  [/enfriamiento|temperatura|termocupla/i,         'Tiempo de enfriamiento excedido'],
-  [/caida|piso|cuerpo\s*extra|contaminacion\s*fis/i,'Contaminacion fisica'],
-  [/listeria|\bl\.?\s?m\.?\b/i,                    'Presencia de listeria'],
-  [/\bram\b|recuento/i,                            'RAM elevado'],
-  [/nitrito/i,                                     'Nitrito fuera de rango'],
-  [/documenta|trazabilidad/i,                      'Falta de documentacion'],
+  [/vida\s*util|dias?\s+de\s+vida|vencimiento/i,   'Vida util excedida',              'RAM'],
+  [/curado/i,                                      'Curado excedido',                 'LISTERIA; RAM; NITRITO'],
+  [/enfriamiento|temperatura|termocupla/i,         'Tiempo de enfriamiento excedido', 'LISTERIA; RAM'],
+  [/caida|piso|cuerpo\s*extra|contaminacion\s*fis/i,'Contaminacion fisica',           'LISTERIA'],
+  [/listeria|\bl\.?\s?m\.?\b/i,                    'Presencia de listeria',           'LISTERIA'],
+  [/\bram\b|recuento/i,                            'RAM elevado',                     'RAM'],
+  [/nitrito/i,                                     'Nitrito fuera de rango',          'NITRITO'],
+  [/documenta|trazabilidad/i,                      'Falta de documentacion',          'NO APLICA'],
 ];
 const COLS_DET = ['ID','FECHA CORREO','EMITIDO POR','ASUNTO / REFERENCIA','TIPO DE DESVIACION',
   'DESCRIPCION','LOTE','PRODUCTO','ALCANCE','CANTIDAD AFECTADA (KG)','FECHA DEL EVENTO',
@@ -896,7 +900,8 @@ function leerCorreo(){
     document.getElementById('det-copiar').hidden=true; av.textContent=''; return;}
 
   const esPNC = /\bPNC\b|producto\s+no\s+conforme/i.test(plano);
-  const tipo = (TIPOS_DET.find(([rx]) => rx.test(plano)) || [null,''])[1];
+  const hit = TIPOS_DET.find(([rx]) => rx.test(plano)) || [null, '', 'LISTERIA; RAM'];
+  const tipo = hit[1], criterios = hit[2];
   const kg = plano.match(/([\d.]+,\d+|\d+\.\d+|\d+)\s*(?:kg|kilos)\b/i);
   // La fecha del correo es la primera que aparece suelta; la del evento, la que
   // acompania al lote. Si solo hay una, sirve para las dos y la persona corrige.
@@ -932,7 +937,8 @@ function leerCorreo(){
         'ESTADO': esPNC ? 'PNC' : 'ABIERTA',
         'RESOLUCION': esPNC ? 'PNC - no se libera contra laboratorio'
                             : 'Detencion hasta liberacion de laboratorio',
-        'CRITERIOS DE LIBERACION': esPNC ? 'NO APLICA' : 'LISTERIA; RAM',
+        // un PNC no se libera contra laboratorio: se dispone
+        'CRITERIOS DE LIBERACION': esPNC ? 'NO APLICA' : criterios,
         'FECHA CORREO': fcorreo,
         'EMITIDO POR': 'Macarena Lira (Supervisor de Calidad)',
         'ASUNTO / REFERENCIA': 'Detencion',

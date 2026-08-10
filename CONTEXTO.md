@@ -37,7 +37,7 @@ este diseño evita:
 | | Qué es | Quién lo escribe | Se recalcula |
 |---|---|---|---|
 | **Laboratorio** | Derivado de los resultados y los criterios | El motor | Entero, cada corrida |
-| **Detención** | Declarada por correo ante una desviación | Personas | Nunca, solo se agrega |
+| **Detención** | Declarada por correo ante una desviación | Personas, desde el sitio | Nunca, solo se agrega |
 | **Registro operativo** | Declarado en `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
 | **Materia prima** | Heredado: la MP venía no conforme | El motor, vía `PRO-REG-46` | Entero, cada corrida |
 
@@ -229,6 +229,13 @@ fallar en silencio.
 5. **24 filas con fecha de bloqueo futura** (hasta 16/07/2027), probable tipeo de año.
    Quedan bloqueadas sin forma de liberarse, porque ninguna muestra puede ser posterior.
    El motor lo avisa por consola y en la propuesta; la corrección va en el xlsm.
+
+6. **Dónde vive el registro de detenciones.** Desde el 10/08/2026 el sitio las escribe en
+   Postgres —el esquema ya lo preveía: la policy `detencion_alta` deja insertar a `calidad`
+   y `admin`, y el rol del motor solo puede leer—. Pero `cruce2.py` sigue leyendo
+   `REGISTRO DETENCIONES.xlsx`. Mientras las dos fuentes convivan, una detención cargada
+   en el sitio **no entra al cruce** hasta que alguien la copie al Excel. Hay que elegir:
+   que el motor lea de Postgres, o que el sitio siga exportando filas para el Excel.
 
 **Trabajo pendiente:**
 

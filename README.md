@@ -32,7 +32,7 @@ diseño evita:
 | | Qué es | Quién lo escribe | Se recalcula |
 |---|---|---|---|
 | **Laboratorio** | Derivado de los resultados y los criterios | El motor | Entero, en cada corrida |
-| **Detención** | Declarada por correo ante una desviación | Personas | Nunca, solo se agrega |
+| **Detención** | Declarada por correo ante una desviación | Personas, desde el sitio | Nunca, solo se agrega |
 | **Registro operativo** | Declarado en `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
 | **Materia prima** | Heredado: la MP venía no conforme | El motor, vía `PRO-REG-46` | Entero, en cada corrida |
 

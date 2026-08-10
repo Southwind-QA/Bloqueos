@@ -275,6 +275,40 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
       <div id="k-stock"></div><div id="r-stock"></div>
     </section>
 
+    <section id="v-detenciones" hidden>
+      <div class="card">
+        <h2>Registrar una detención desde el correo</h2>
+        <p class="lead">Pega el correo <b>tal como llegó</b>. Se propone una fila por cada lote y
+          producto que se reconozca. Revisa, corrige lo que haga falta y guarda.
+          <b>El sistema propone, tú confirmas</b>: una detención mal leída bloquea o libera
+          producto, así que nada se guarda sin que alguien lo mire.</p>
+        <label class="fld" for="det-txt">Correo de detención</label>
+        <textarea id="det-txt" placeholder="Estimados:&#10;&#10;Junto con saludar, informo que el siguiente producto..."></textarea>
+        <div class="acts">
+          <button class="btn" onclick="leerCorreo()">Analizar el correo</button>
+          <button class="btn ghost" onclick="limpiarCorreo()">Limpiar</button>
+          <button class="btn" id="det-guardar" hidden onclick="guardarDet()">Guardar detenciones</button>
+          <span id="det-aviso" class="mut"></span>
+        </div>
+        <div id="det-prop"></div>
+      </div>
+      <div class="card">
+        <h2>Detenciones declaradas</h2>
+        <p class="lead">Son un bloqueo <b>declarado</b>, no calculado: valen aunque el laboratorio
+          no tenga resultado, y la ausencia de evidencia no libera. Se cierran contra un resultado
+          posterior al evento que cubra el criterio desviado; un PNC no se libera, se dispone.</p>
+        <div class="toolbar">
+          <div><label class="fld" for="fdet">Buscar</label>
+            <input type="text" id="fdet" placeholder="Lote, producto, ID…" oninput="pintaDet()"></div>
+          <div><label class="fld" for="fdete">Estado</label>
+            <select id="fdete" onchange="pintaDet()"><option value="">Todos</option>
+              <option>ABIERTA</option><option>PNC</option><option>LIBERADA</option></select></div>
+        </div>
+        <div id="k-det" style="margin-top:14px"></div>
+        <div id="r-det"></div>
+      </div>
+    </section>
+
     <section id="v-buscar" hidden>
       <div class="card">
         <h2>Buscar</h2>
@@ -305,7 +339,8 @@ const CAUSAS = [
   {k:'MATERIAPRIMA', nm:'Materia prima', c:'mp'}];
 const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
              'LIBERADO POR DECISION':4,'LIBERADO':5};
-const VIEWS = [['consulta','Consulta con packing list'],['stock','Estado de stock'],['buscar','Buscar']];
+const VIEWS = [['consulta','Consulta con packing list'],['stock','Estado de stock'],
+  ['detenciones','Detenciones'],['buscar','Buscar']];
 
 let L = [], B = [], BIDX = new Map(), yo = null, sel = new Set(), ULT = [], ULT_STOCK = [];
 
@@ -360,7 +395,7 @@ async function entrar(){
   // personas autenticadas ven lo mismo, asi que no hay nada que filtrar por
   // usuario. Tenerlos en memoria hace instantanea la busqueda por prefijo.
   try {
-    [L, B] = await Promise.all([traerTodo('lote'), traerTodo('batch')]);
+    [L, B, DET] = await Promise.all([traerTodo('lote'), traerTodo('batch'), traerDet()]);
   } catch(e) {
     $('sub').textContent = 'error al cargar';
     return alert('No se pudieron leer los datos: ' + e.message);
@@ -377,6 +412,170 @@ window.ir = v => {
   VIEWS.forEach(([k]) => $('v-'+k).hidden = (k!==v));
   document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-selected', b.dataset.v===v));
   if(v==='stock') pintaStock();
+  if(v==='detenciones') pintaDet();
+};
+
+// ---------------------------------------------------------------- correo -> detencion
+// Las detenciones las escriben personas y el motor solo las lee: por eso el rol
+// del motor no tiene permiso de insercion y esta pantalla si, con la cuenta de
+// quien la registra. Lo unico que hace el parser es ahorrar la transcripcion,
+// que es donde se cuela el error caro: un lote mal tipeado bloquea el producto
+// equivocado y deja libre el que no lo esta.
+const sinTilde = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g,'');
+// Cada desviacion se cierra con lo que mide lo que fallo, no con todo el panel:
+// el vencimiento en camara es tiempo y temperatura, y eso lo responde el RAM;
+// una caida al piso es contaminacion, y eso lo responde la listeria. Pedir de
+// mas no es mas seguro, solo deja la detencion abierta para siempre.
+const TIPOS_DET = [
+  [/vida\s*util|dias?\s+de\s+vida|vencimiento/i,    'Vida util excedida',              ['RAM']],
+  [/curado/i,                                       'Curado excedido',                 ['LISTERIA','RAM','NITRITO']],
+  [/enfriamiento|temperatura|termocupla/i,          'Tiempo de enfriamiento excedido', ['LISTERIA','RAM']],
+  [/caida|piso|cuerpo\s*extra|contaminacion\s*fis/i,'Contaminacion fisica',            ['LISTERIA']],
+  [/listeria|\bl\.?\s?m\.?\b/i,                     'Presencia de listeria',           ['LISTERIA']],
+  [/\bram\b|recuento/i,                             'RAM elevado',                     ['RAM']],
+  [/nitrito/i,                                      'Nitrito fuera de rango',          ['NITRITO']],
+  [/documenta|trazabilidad/i,                       'Falta de documentacion',          []],
+];
+let PROP_DET = [], DET = [];
+
+function fechaISO(t){
+  const m = String(t).match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(!m) return '';
+  const a = m[3].length === 2 ? '20'+m[3] : m[3];
+  return `${a}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+}
+function siguienteID(){
+  const nums = DET.map(x => {const m = String(x.id).match(/DET-\d{4}-(\d+)/);
+    return m ? parseInt(m[1],10) : 0;});
+  const n = nums.length ? Math.max(...nums) : 0;
+  const anio = (String(DET.map(x=>x.id).sort().pop()||'').match(/DET-(\d{4})/)||[])[1]
+    || String(new Date().getFullYear());
+  return k => `DET-${anio}-${String(n+1+k).padStart(3,'0')}`;
+}
+
+window.leerCorreo = () => {
+  const txt = $('det-txt').value, plano = sinTilde(txt), av = $('det-aviso');
+  if(!txt.trim()){$('det-prop').innerHTML=''; $('det-guardar').hidden=true; av.textContent=''; return;}
+  const esPNC = /\bPNC\b|producto\s+no\s+conforme/i.test(plano);
+  const hit = TIPOS_DET.find(([rx]) => rx.test(plano)) || [null,'',['LISTERIA','RAM']];
+  const kg = plano.match(/([\d.]+,\d+|\d+\.\d+|\d+)\s*(?:kg|kilos)\b/i);
+  const fechas = plano.match(/\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/g) || [];
+  const fcorreo = fechas.length ? fechaISO(fechas[0]) : '';
+
+  const filas = [];
+  for(const linea of txt.split(/\r?\n/)){
+    const toks = linea.split(/[\s,;()]+/).filter(esLote);
+    if(!toks.length) continue;
+    const fev = fechaISO(sinTilde(linea)) || fcorreo;
+    let prod = linea.replace(/^\s*\d+[.)]\s*/,'')
+      .replace(/^.*?(?:informo que|informo|se detienen|se detiene)\s*/i,'')
+      .replace(/^\s*[\d.,]+\s*(?:kg|kilos)\s+de\s+/i,'')
+      .replace(/^(?:el|la|los|las)\s+/i,'')
+      .split(/\blotes?\b\s*:?/i)[0]
+      .trim().replace(/[.,;:\-–—]+$/,'')
+      .replace(/\s+(?:con|de|del|para)\s+(?:el|la|los|las)?\s*$/i,'').trim();
+    if(prod.length > 70 || prod.length < 3) prod = '';
+    for(const t of new Set(toks.map(x => x.replace(/[.;,]+$/,'')))){
+      filas.push({lote:t, producto:prod, tipo:hit[1], fecha_evento:fev, fecha_correo:fcorreo,
+        alcance: kg ? 'PARCIAL (KG)' : 'LOTE+PRODUCTO',
+        cantidad_kg: kg ? kg[1].replace(/\.(?=\d{3}\b)/g,'').replace(',','.') : '',
+        estado: esPNC ? 'PNC' : 'ABIERTA',
+        resolucion: esPNC ? 'PNC - no se libera contra laboratorio'
+                          : 'Detencion hasta liberacion de laboratorio',
+        criterios: esPNC ? [] : hit[2],
+        emitido_por:'', referencia:'Detencion', descripcion: linea.trim().slice(0,180)});
+    }
+  }
+  const sig = siguienteID();
+  filas.forEach((f,i)=>f.id = sig(i));
+  PROP_DET = filas;
+
+  if(!filas.length){
+    $('det-prop').innerHTML = '<div class="card empty">No se reconoció ningún código con forma '+
+      'de lote. Revisa que el correo traiga el lote completo; si viene partido en dos líneas, '+
+      'júntalo antes de pegar.</div>';
+    $('det-guardar').hidden = true; av.textContent=''; return;
+  }
+  const ya = filas.filter(f => DET.some(d => norm(d.lote)===norm(f.lote)
+    && String(d.fecha_correo).slice(0,10)===f.fecha_correo));
+  const dudosa = fcorreo && filas.some(f => f.fecha_evento === fcorreo);
+  const campos = [['fecha_correo','Fecha correo'],['lote','Lote'],['producto','Producto'],
+    ['tipo','Tipo'],['fecha_evento','Fecha evento'],['alcance','Alcance'],
+    ['cantidad_kg','Kg'],['estado','Estado']];
+  $('det-prop').innerHTML =
+    (fcorreo?'':'<div class="aviso" style="margin:12px 0"><span>&#9888;</span><div>'+
+      '<b>No se detectó la fecha del correo.</b> Va en el encabezado, que no se copia al pegar '+
+      'el cuerpo. Escríbela a mano: el motor la usa para saber qué muestras son posteriores al '+
+      'evento, y sin ella la detención no se puede cerrar nunca.</div></div>')+
+    (dudosa?'<div class="note" style="margin:12px 0 0"><b>Revisa la fecha del correo:</b> salió '+
+      'igual a la del evento, así que puede ser la del proceso y no la del envío.</div>':'')+
+    `<div class="note" style="margin:12px 0 8px">${filas.length} fila(s) propuesta(s). `+
+    `Criterios de liberación: <b>${hit[2].join(', ')||'ninguno, no se cierra con laboratorio'}</b>. `+
+    'Todo es editable.</div>'+
+    '<div class="tw"><table><thead><tr><th>ID</th>'+campos.map(c=>`<th>${c[1]}</th>`).join('')+
+    '</tr></thead><tbody>'+filas.map((f,i)=>`<tr><td class="mono">${esc(f.id)}</td>`+
+    campos.map(c=>`<td><input data-i="${i}" data-c="${c[0]}" value="${esc(f[c[0]])}" `+
+    `oninput="PROP_DET[this.dataset.i][this.dataset.c]=this.value" `+
+    `style="min-width:${c[0]==='producto'?200:110}px"></td>`).join('')+'</tr>').join('')+
+    '</tbody></table></div>'+
+    (ya.length?`<div class="note"><b>Ojo:</b> ${ya.length} fila(s) coinciden con una detención ya `+
+      'registrada (mismo lote y misma fecha de correo). Revisa antes de guardar.</div>':'');
+  av.textContent = ya.length ? `${ya.length} ya estaban en el registro` : '';
+  $('det-guardar').hidden = false;
+};
+window.limpiarCorreo = () => {
+  $('det-txt').value=''; $('det-prop').innerHTML=''; $('det-aviso').textContent='';
+  $('det-guardar').hidden=true;
+};
+window.guardarDet = async () => {
+  if(!PROP_DET.length) return;
+  const faltan = PROP_DET.filter(f => !f.fecha_correo || !f.fecha_evento || !f.lote);
+  if(faltan.length) return alert('Faltan datos obligatorios en '+faltan.length+' fila(s): '+
+    'lote, fecha del correo y fecha del evento. La fecha del evento decide qué muestras '+
+    'cuentan como posteriores, así que no puede quedar vacía.');
+  if(!confirm(`Se van a registrar ${PROP_DET.length} detención(es) a tu nombre. `+
+    'Quedan bloqueando el producto hasta que se liberen. ¿Confirmas?')) return;
+  const filas = PROP_DET.map(f => ({id:f.id, fecha_correo:f.fecha_correo,
+    emitido_por: f.emitido_por || yo.nombre, referencia:f.referencia, tipo:f.tipo,
+    descripcion:f.descripcion, lote:f.lote, producto:f.producto || null,
+    alcance:f.alcance, cantidad_kg: f.cantidad_kg ? Number(f.cantidad_kg) : null,
+    fecha_evento:f.fecha_evento, resolucion:f.resolucion,
+    criterios: Array.isArray(f.criterios) ? f.criterios
+      : String(f.criterios).split(/[;,]/).map(s=>s.trim().toUpperCase()).filter(Boolean),
+    estado:f.estado, origen:'Correo, cargado desde el sitio', creado_por: yo.id}));
+  const {error} = await sb.from('detencion').insert(filas);
+  if(error){
+    const rls = /row-level security|permission/i.test(error.message);
+    return alert(rls ? 'Tu cuenta no tiene permiso para registrar detenciones: hace falta '+
+      'el rol calidad o admin.' : 'No se pudo guardar: '+error.message);
+  }
+  DET = await traerDet();
+  limpiarCorreo(); pintaDet();
+  alert(filas.length+' detención(es) registradas. El próximo cruce ya las considera.');
+};
+
+async function traerDet(){
+  const {data, error} = await sb.from('detencion').select('*').order('id', {ascending:false});
+  if(error){console.warn('detenciones:', error.message); return [];}
+  return data;
+}
+window.pintaDet = () => {
+  const f = $('fdet').value.toLowerCase().trim(), e = $('fdete').value;
+  let d = DET;
+  if(e) d = d.filter(x => x.estado === e);
+  if(f) d = d.filter(x => Object.values(x).join(' ').toLowerCase().includes(f));
+  $('k-det').innerHTML = tiles([['Detenciones', d.length],
+    ['Abiertas', d.filter(x=>x.estado==='ABIERTA').length],
+    ['PNC', d.filter(x=>x.estado==='PNC').length]]);
+  $('r-det').innerHTML = d.length ? '<div class="tw"><table><thead><tr><th>ID</th>'+
+    '<th>Correo</th><th>Tipo</th><th>Lote</th><th>Producto</th><th>Alcance</th>'+
+    '<th>Evento</th><th>Criterios</th><th>Estado</th></tr></thead><tbody>'+
+    d.map(x=>`<tr><td class="mono">${esc(x.id)}</td><td class="sec">${esc(String(x.fecha_correo).slice(0,10))}</td>`+
+    `<td class="sec">${esc(x.tipo)}</td><td class="mono">${esc(x.lote)}</td>`+
+    `<td class="sec">${esc(x.producto||'')}</td><td class="sec">${esc(x.alcance)}</td>`+
+    `<td class="sec">${esc(String(x.fecha_evento).slice(0,10))}</td>`+
+    `<td class="sec">${esc((x.criterios||[]).join(', '))}</td><td>${chip(x.estado)}</td></tr>`).join('')+
+    '</tbody></table></div>' : '<div class="card empty">No hay detenciones que mostrar.</div>';
 };
 
 // ---------------------------------------------------------------- utilidades

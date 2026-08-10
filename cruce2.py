@@ -430,8 +430,18 @@ def evalua(rows, criterios=None, desde=None):
         r.update(listeria=None, ram=None, nitrito=None, nit_min=None, wps=None,
                  nit_nc=False, nit_txt="", ar="")
         return r, rows
-    r["listeria"] = ("PRESENCIA" if rows["_LM_P"].any()
-                     else ("Ausencia" if rows["_LM_DATO"].any() else None))
+    # La listeria se mira solo donde se exige, con la misma regla que para el lote:
+    # refrigerada siempre, congelada solo con destino EE.UU. o Costa Rica. Sin esto,
+    # cerrar una detencion pedia ausencia incluso en producto al que el criterio no
+    # se le aplica, y la detencion no se cerraba nunca.
+    _apl = rows[rows["_LIS_APLICA"]] if "_LIS_APLICA" in rows else rows
+    if _apl["_LM_DATO"].any():
+        r["listeria"] = "PRESENCIA" if _apl["_LM_P"].any() else "Ausencia"
+    elif rows["_LM_DATO"].any():
+        # medido y conforme por no exigible: distinto de que nadie lo haya medido
+        r["listeria"] = "NO APLICA"
+    else:
+        r["listeria"] = None
     r["ram"] = rows["_RAM_MAX"].max() if rows["_RAM_MAX"].notna().any() else None
     r["nitrito"] = rows["_NIT"].min() if rows["_NIT"].notna().any() else None
     r["nit_min"] = rows["_NIT_MIN"].min() if rows["_NIT_MIN"].notna().any() else None
@@ -452,6 +462,9 @@ def incumple(r, criterio):
     if criterio == "LISTERIA":
         if r["listeria"] is None:
             return False, True, "sin dato de listeria"
+        if r["listeria"] == "NO APLICA":
+            return False, False, ("Listeria medida pero no exigible: linea congelada sin "
+                                  "destino EE.UU. ni Costa Rica")
         return r["listeria"] == "PRESENCIA", False, "Listeria: PRESENCIA"
     if criterio == "RAM":
         if r["ram"] is None:
