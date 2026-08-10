@@ -91,6 +91,7 @@ batches = [{
     "b": txt(r["BATCH"]), "n": txt(r["BATCH (normalizado)"]), "estado": txt(r["ESTADO"]),
     "causas": lista(r["CAUSAS LAB"]), "lab": txt(r["MOTIVO - LABORATORIO"]),
     "det": txt(r["MOTIVO - DETENCION"]),
+    "ope": txt(r.get("MOTIVO - REGISTRO OPERATIVO", "")),
     "nm": int(r["N MUESTRAS"]) if not pd.isna(r["N MUESTRAS"]) else 0,
     "ult": txt(r["ULTIMA MUESTRA"])[:10], "pres": txt(r["PRESENTACION"]),
     "tipo": txt(r["TIPO"]), "obs": txt(r["OBSERVACION LAB"]),
@@ -669,6 +670,7 @@ function detalle(x){
   // bloquean el LOTE, no un batch ni un dia. Sin decirlo, la tabla de batches
   // -donde este sale LIBERADO- parece contradecir el estado de la fila.
   const labLimpio = x.r && !x.r.hits.some(b => b.estado==='BLOQUEADO' || b.estado==='PNC');
+  const porUnidad = x.r && x.r.nivel === 'EXACTO' && normU(x.usado).includes('*');
   if(estadoLinea(x)==='BLOQUEADO' && labLimpio)
     h.push('<div class="aviso"><span>&#9888;</span><div><b>El laboratorio de este codigo '+
       'esta conforme, pero el lote sigue bloqueado por un origen declarado.</b> Las '+
@@ -699,12 +701,15 @@ function detalle(x){
       h.push('<div>'+(hits.length>1?'<span class="mono">'+esc(b.b)+'</span> ':'')+tg+
         (b.lab?'<span class="hd">Lab</span> '+esc(b.lab):'')+
         (b.det?' <span class="hd">Detencion</span> '+esc(b.det):'')+
+        // El bloqueo declarado sobre ESTA unidad: sin mostrarlo, la fila decia
+        // "conforme" al lado de BLOQUEADO y no habia forma de saber por que.
+        (b.ope?' <span class="hd">Registro operativo</span> '+esc(b.ope):'')+
         (b.rem?'<span class="hd">Re-muestreo</span> '+esc(b.rem)+
           '<div class="note">Un re-muestreo conforme no libera solo: requiere decision '+
           'firmada de Calidad.</div>':'')+
         (b.libf?'<div class="note"><b>Liberacion declarada</b> el '+esc(b.libf)+
           (b.libm?' para '+esc(b.libm):'')+(b.libo?' ('+esc(b.libo)+')':'')+'</div>':'')+
-        (!b.lab&&!b.det&&!b.rem?'<span class="mut">Conforme en '+b.nm+
+        (!b.lab&&!b.det&&!b.ope&&!b.rem?'<span class="mut">Conforme en '+b.nm+
           ' muestra(s).</span>':'')+'</div>');
     });
     const b0 = hits[0];
@@ -717,7 +722,9 @@ function detalle(x){
     '</span></div>'));
   x.ops.forEach(o => {
     const ref = o.n!==norm(x.usado)?'<span class="mono">'+esc(o.lote)+'</span> ':'';
-    if(o.ope) h.push('<div><span class="tag ope">Registro operativo</span>'+ref+esc(o.ope)+
+    // Si se resolvio por unidad, su bloqueo operativo ya se mostro en la linea del
+    // batch: repetir aqui el del lote entero hace parecer que tambien la alcanza.
+    if(o.ope && !porUnidad) h.push('<div><span class="tag ope">Registro operativo</span>'+ref+esc(o.ope)+
       (o.opeb?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>');
     if(o.mp) h.push('<div><span class="tag mp">Materia prima</span>'+ref+esc(o.mp)+
       (o.mpb?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>');
@@ -1116,7 +1123,7 @@ function abrirLote(n){
       critHtml(o.porcrit)+(o.evid?'<div class="pista">Evidencia: '+esc(o.evid)+'</div>':''))+
     grp('Batches del laboratorio ('+bs.length+')', mini(['Batch','Estado','Detalle','Muestras'],
       bs.map(b=>['<span class="mono">'+esc(b.b)+'</span>', chip(b.estado),
-        esc(b.lab||b.rem||b.det||'conforme'), b.nm]))) +
+        esc(b.lab||b.det||b.ope||b.rem||'conforme'), b.nm]))) +
     grp('En bodega', o.stock ? kv([['Cajas', nf(o.cajas)],['Kg netos', nf(o.kg)],
         ['Piezas', nf(o.pz)],['OF', esc(o.of)],['Clientes', esc(o.cliente)]])+
         mini(['Bodega','Cajas','Kg'], (o.bod||[]).map(b=>[esc(b[0]), nf(b[1]), nf(b[2])]))+

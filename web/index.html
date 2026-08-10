@@ -863,7 +863,10 @@ function detalleLinea(x){
     'el registro operativo y la materia prima bloquean el <b>lote completo</b>: no '+
     'distinguen batch ni día de producción, porque no se declaran a ese nivel. Por eso '+
     'abajo verás este batch como liberado y la fila como bloqueada.</div></div>' : '';
-  const op = choca + (x.ops||[]).map(o=>`<div><span class="tag REGISTRO">Registro operativo</span>`+
+  // Si se resolvio por unidad, su bloqueo operativo ya se muestra en la linea del
+  // batch: repetir aqui el del lote entero hace parecer que tambien la alcanza.
+  const porUni = x.r && x.r.nivel === 'EXACTO' && normU(x.cand).includes('*');
+  const op = choca + (porUni ? [] : (x.ops||[])).map(o=>`<div><span class="tag REGISTRO">Registro operativo</span>`+
     (o.normalizado!==norm(x.cand)?`<span class="mono">${esc(o.lote)}</span> `:'')+esc(o.motivo_operativo)+
     (o.operativo_bloquea?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>').join('');
   if(!x.r) return '<div class="why">'+op+'<div><b>El laboratorio aún no tiene resultado para este lote.</b></div>'+
@@ -882,9 +885,12 @@ function detalleLinea(x){
       (b.causas||[]).map(k=>`<span class="tag ${k}">${k}</span>`).join('')+
       (b.motivo_lab?`<span class="hd">Lab</span> ${esc(b.motivo_lab)}`:'')+
       (b.motivo_detencion?` <span class="hd">Detención</span> ${esc(b.motivo_detencion)}`:'')+
+      // El bloqueo declarado sobre ESTA unidad: sin mostrarlo, la fila decia
+      // "conforme" al lado de BLOQUEADO y no habia forma de saber por que.
+      (b.motivo_operativo?` <span class="hd">Registro operativo</span> ${esc(b.motivo_operativo)}`:'')+
       (b.remuestreo?`<span class="hd">Re-muestreo</span> ${esc(b.remuestreo)}<div class="note">`+
         'No libera solo: requiere decisión firmada de Calidad.</div>':'')+
-      (!b.motivo_lab && !b.motivo_detencion && !b.remuestreo
+      (!b.motivo_lab && !b.motivo_detencion && !b.motivo_operativo && !b.remuestreo
         ? `<span class="mut">Conforme en ${b.n_muestras} muestra(s).</span>`:'')+'</div>';
   });
   h += `<div class="note">${hits.reduce((s,b)=>s+(b.n_muestras||0),0)} muestra(s) de laboratorio`+
@@ -1047,7 +1053,7 @@ window.verLote = n => {
     grp('Por qué está así', porque(o) + (o.evidencia?`<div class="note">Evidencia: ${esc(o.evidencia)}</div>`:''))+
     grp(`Batches del laboratorio (${bs.length})`, mini(['Batch','Estado','Detalle','Muestras'],
       bs.map(b=>[`<span class="mono">${esc(b.batch)}</span>`, chip(b.estado),
-        esc(b.motivo_lab||b.remuestreo||b.motivo_detencion||'conforme'), b.n_muestras])))+
+        esc(b.motivo_lab||b.motivo_detencion||b.motivo_operativo||b.remuestreo||'conforme'), b.n_muestras])))+
     grp('En bodega', o.en_stock ? kv([['Cajas',nf(o.cajas)],['Kg',nf(Math.round(o.kg||0))],
       ['Bodegas',esc((o.bodegas||[]).join(' / '))],['Clientes',esc((o.clientes||[]).join(' / '))],
       ['Productos',esc((o.productos||[]).join(' / '))]]) : '<div class="mut">No aparece en ningún stock.</div>')+

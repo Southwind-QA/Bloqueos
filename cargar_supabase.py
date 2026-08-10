@@ -150,13 +150,15 @@ with psycopg.connect(URL, autocommit=False) as cx:
 
         cur.executemany(
             """insert into batch (batch, normalizado, lote_base, estado, causas,
-                 motivo_lab, motivo_detencion, remuestreo, listeria, ram_max, nitrito, wps,
+                 motivo_lab, motivo_detencion, motivo_operativo, remuestreo, listeria,
+                 ram_max, nitrito, wps,
                  n_muestras, primera_muestra, ultima_muestra, linea, tipo, presentacion,
                  observacion_lab, liberacion_declarada, mercados_liberados, corrida_id)
-               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             [(txt(r["BATCH"]), txt(r["BATCH (normalizado)"]), txt(r["LOTE BASE EN STOCK"]),
               txt(r["ESTADO"]), lista(r["CAUSAS LAB"]), txt(r["MOTIVO - LABORATORIO"]),
-              txt(r["MOTIVO - DETENCION"]), txt(r["RE-MUESTREO CONFORME"]),
+              txt(r["MOTIVO - DETENCION"]), txt(r.get("MOTIVO - REGISTRO OPERATIVO")),
+              txt(r["RE-MUESTREO CONFORME"]),
               txt(r["LISTERIA"]), num(r["RAM MAX (UFC/g)"]), num(r["NITRITO PROMEDIO (ppm)"]),
               num(r["WPS (%)"]),
               ent(r["N MUESTRAS"]), fecha(r["PRIMERA MUESTRA"]), fecha(r["ULTIMA MUESTRA"]),
