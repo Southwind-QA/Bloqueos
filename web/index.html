@@ -352,6 +352,51 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
       </div>
     </section>
 
+    <section id="v-bloqueados" hidden>
+      <div class="card">
+        <h2>Qué está bloqueado ahora</h2>
+        <p class="lead">Al <b>código completo</b>, sin agregar por lote de bodega: cada día de
+          producción con su propio veredicto. Es la lista de lo que hoy no puede salir y por qué.
+          Un lote de bodega puede aparecer con unos días bloqueados y otros no; las cajas igual
+          no se pueden separar, porque Fishken no registra el sufijo.</p>
+        <div class="toolbar">
+          <div><label class="fld" for="fb">Buscar</label>
+            <input type="text" id="fb" placeholder="Lote, motivo…" oninput="pintaBloqueados()"></div>
+          <div><label class="fld" for="fbo">Origen</label>
+            <select id="fbo" onchange="pintaBloqueados()"><option value="">Todos</option>
+              <option value="lab">Laboratorio</option><option value="det">Detención</option>
+              <option value="ope">Registro operativo</option></select></div>
+          <div class="acts" style="margin:0"><button class="btn ghost" onclick="copiar(csvBloqueados())">Copiar</button></div>
+        </div>
+        <div id="k-bloq" style="margin-top:14px"></div>
+        <div id="r-bloq"></div>
+      </div>
+    </section>
+
+    <section id="v-liberados" hidden>
+      <div class="card">
+        <h2>Cómo se ha ido liberando</h2>
+        <p class="lead">Cada vez que un resultado nuevo de laboratorio, una firma o una
+          liberación declarada sacaron algo de bloqueo. Se lee de arriba abajo como una
+          historia: qué se destrabó, cuándo y con qué. Lo marcado como <b>cambio de norma</b>
+          no se liberó por un resultado nuevo sino porque cambió un criterio — y esa distinción
+          es justamente para lo que existe este registro.</p>
+        <div class="toolbar">
+          <div><label class="fld" for="fl2">Buscar</label>
+            <input type="text" id="fl2" placeholder="Lote…" oninput="pintaLiberados()"></div>
+          <div><label class="fld" for="flv">Ver</label>
+            <select id="flv" onchange="pintaLiberados()">
+              <option value="">Todo lo que salió de bloqueo</option>
+              <option value="LIBERADO">Solo liberados</option>
+              <option value="CANDIDATO A LIBERAR">Solo candidatos</option>
+              <option value="LIBERADO POR DECISION">Solo firmados</option></select></div>
+          <div class="acts" style="margin:0"><button class="btn ghost" onclick="copiar(csvLiberados())">Copiar</button></div>
+        </div>
+        <div id="k-lib" style="margin-top:14px"></div>
+        <div id="r-lib"></div>
+      </div>
+    </section>
+
     <section id="v-buscar" hidden>
       <div class="card">
         <h2>Buscar</h2>
@@ -383,6 +428,7 @@ const CAUSAS = [
 const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
              'LIBERADO POR DECISION':4,'LIBERADO':5};
 const VIEWS = [['consulta','Consulta con packing list'],['stock','Estado de stock'],
+  ['bloqueados','Bloqueados'],['liberados','Liberados'],
   ['detenciones','Detenciones'],['aph','Liberar ruta APH'],['buscar','Buscar']];
 
 let L = [], B = [], BIDX = new Map(), yo = null, sel = new Set(), ULT = [], ULT_STOCK = [];
@@ -487,6 +533,123 @@ window.ir = v => {
   document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-selected', b.dataset.v===v));
   if(v==='stock') pintaStock();
   if(v==='detenciones') pintaDet();
+  if(v==='bloqueados') pintaBloqueados();
+  if(v==='liberados') pintaLiberados();
+};
+
+// ------------------------------------------------------- que esta bloqueado
+// Al codigo completo y no agregado por lote de bodega: es la lista de lo que hoy
+// no puede salir. El lote de stock se muestra al lado, porque las cajas son
+// suyas y no se pueden separar por dia.
+const ORIGEN_B = b => [b.motivo_lab && 'lab', b.motivo_detencion && 'det',
+                       b.motivo_operativo && 'ope'].filter(Boolean);
+window.pintaBloqueados = () => {
+  const f = $('fb').value.toLowerCase().trim(), o = $('fbo').value;
+  let d = B.filter(x => x.estado === 'BLOQUEADO' || x.estado === 'PNC');
+  if(o) d = d.filter(x => ORIGEN_B(x).includes(o));
+  if(f) d = d.filter(x => [x.batch, x.motivo_lab, x.motivo_detencion, x.motivo_operativo,
+    x.lote_base, x.presentacion].join(' ').toLowerCase().includes(f));
+  d = d.slice().sort((a,b) => String(b.ultima_muestra||'').localeCompare(String(a.ultima_muestra||'')));
+  // Las cajas son del lote de bodega, no del dia: sumarlas por unidad las contaria
+  // varias veces. Se cuentan los lotes distintos que estas unidades tocan.
+  const lotes = new Set(d.map(x => x.lote_base).filter(Boolean));
+  const cajas = [...lotes].reduce((s,n) => s + ((L.find(o2=>o2.normalizado===n)||{}).cajas||0), 0);
+  $('k-bloq').innerHTML = tiles([['Unidades bloqueadas', d.length],
+    ['Lotes de bodega que tocan', lotes.size], ['Cajas de esos lotes', cajas],
+    ['Por laboratorio', d.filter(x=>x.motivo_lab).length],
+    ['Declarados', d.filter(x=>x.motivo_detencion||x.motivo_operativo).length]]);
+  ULT_BLOQ = d;
+  $('r-bloq').innerHTML = d.length ? '<div class="tw"><table class="wide"><thead><tr>'+
+    '<th>Código completo</th><th>Estado</th><th>Laboratorio</th><th>Declarado</th>'+
+    '<th>Muestras</th><th>Última</th><th>Lote en bodega</th><th class="n">Cajas</th>'+
+    '</tr></thead><tbody>'+d.map(x=>{
+      const lo = L.find(o2=>o2.normalizado===x.lote_base);
+      return `<tr class="clic" tabindex="0" onclick="verBatch('${esc(x.normalizado)}')">`+
+        `<td class="mono">${esc(x.batch)}</td><td>${chip(x.estado)}</td>`+
+        `<td class="sec">${esc(x.motivo_lab||'')}</td>`+
+        `<td class="sec">${esc(x.motivo_detencion||x.motivo_operativo||'')}</td>`+
+        `<td class="n">${x.n_muestras||0}</td>`+
+        `<td class="sec">${esc(String(x.ultima_muestra||'').slice(0,10))}</td>`+
+        `<td class="mono">${lo?`<span class="clic" onclick="event.stopPropagation();verLote('${esc(lo.normalizado)}')">${esc(lo.lote)}</span>`:'<span class="mut">no está en bodega</span>'}</td>`+
+        `<td class="n">${lo?nf(lo.cajas||0):''}</td></tr>`;}).join('')+
+    '</tbody></table></div>' : '<div class="card empty">Nada bloqueado con ese filtro.</div>';
+};
+function csvBloqueados(){
+  const cab = ['CODIGO','ESTADO','LABORATORIO','DECLARADO','MUESTRAS','ULTIMA','LOTE EN BODEGA','CAJAS'];
+  return [cab].concat(ULT_BLOQ.map(x=>{
+    const lo = L.find(o2=>o2.normalizado===x.lote_base) || {};
+    return [x.batch, x.estado, x.motivo_lab||'', x.motivo_detencion||x.motivo_operativo||'',
+            x.n_muestras||0, String(x.ultima_muestra||'').slice(0,10), lo.lote||'', lo.cajas||0];
+  })).map(f=>f.join('\t')).join('\r\n');
+}
+
+// -------------------------------------------------------- como se ha liberado
+// El motor se recalcula entero cada corrida, asi que sin este registro no habria
+// forma de saber que algo estuvo bloqueado y dejo de estarlo. Aqui se lee al
+// reves de como se escribio: no que cambio, sino que se destrabo y con que.
+const SALEN = ['LIBERADO', 'CANDIDATO A LIBERAR', 'LIBERADO POR DECISION'];
+let LIB = null, ULT_LIB = [], ULT_BLOQ = [];
+
+async function traerLiberaciones(){
+  const {data, error} = await sb.from('cambio_estado')
+    .select('nivel, clave, estado_ant, estado_nuevo, causas, cajas, por_criterio, corrida(inicio)')
+    .in('estado_nuevo', SALEN)
+    .in('estado_ant', ['BLOQUEADO', 'PNC', 'CANDIDATO A LIBERAR', 'SIN ANALISIS'])
+    .order('id', {ascending:false}).limit(1000);
+  if(error){console.warn('liberaciones:', error.message); return [];}
+  return data;
+}
+window.pintaLiberados = async () => {
+  if(LIB === null){ $('r-lib').innerHTML = '<div class="card empty">cargando…</div>';
+    LIB = await traerLiberaciones(); }
+  const f = $('fl2').value.toLowerCase().trim(), v = $('flv').value;
+  let d = LIB;
+  if(v) d = d.filter(x => x.estado_nuevo === v);
+  if(f) d = d.filter(x => (x.clave+' '+(x.causas||'')).toLowerCase().includes(f));
+  ULT_LIB = d;
+  const porNorma = d.filter(x => x.por_criterio).length;
+  $('k-lib').innerHTML = tiles([['Movimientos', d.length],
+    ['Liberados', d.filter(x=>x.estado_nuevo==='LIBERADO').length],
+    ['Candidatos', d.filter(x=>x.estado_nuevo==='CANDIDATO A LIBERAR').length],
+    ['Firmados', d.filter(x=>x.estado_nuevo==='LIBERADO POR DECISION').length],
+    ['Por cambio de norma', porNorma]]);
+  $('r-lib').innerHTML = d.length ? '<div class="tw"><table class="wide"><thead><tr>'+
+    '<th>Cuándo</th><th>Código</th><th>Nivel</th><th>Venía de</th><th>Pasó a</th>'+
+    '<th>Qué lo tenía bloqueado</th><th class="n">Cajas</th></tr></thead><tbody>'+
+    d.map(x=>`<tr><td class="sec">${esc(String((x.corrida||{}).inicio||'').slice(0,16).replace('T',' '))}</td>`+
+      `<td class="mono">${esc(x.clave)}</td><td class="sec">${esc(x.nivel)}</td>`+
+      `<td>${x.estado_ant?chip(x.estado_ant):''}</td><td>${chip(x.estado_nuevo)}</td>`+
+      `<td class="sec">${esc(x.causas||'')}`+
+      (x.por_criterio?' <span class="tag NITRITO">cambio de norma</span>':'')+'</td>'+
+      `<td class="n">${nf(x.cajas||0)}</td></tr>`).join('')+
+    '</tbody></table></div>' : '<div class="card empty">Sin movimientos con ese filtro.</div>';
+};
+function csvLiberados(){
+  const cab = ['CUANDO','CODIGO','NIVEL','VENIA DE','PASO A','CAUSAS','CAJAS','POR CAMBIO DE NORMA'];
+  return [cab].concat(ULT_LIB.map(x=>[String((x.corrida||{}).inicio||'').slice(0,16).replace('T',' '),
+    x.clave, x.nivel, x.estado_ant||'', x.estado_nuevo, x.causas||'', x.cajas||0,
+    x.por_criterio?'SI':'no'])).map(f=>f.join('\t')).join('\r\n');
+}
+window.copiar = t => navigator.clipboard.writeText(t).then(
+  () => alert('Copiado. Pégalo en Excel.'), () => alert('El navegador no dejó copiar.'));
+window.verBatch = n => {
+  const b = B.find(x => x.normalizado === n); if(!b) return;
+  const lo = L.find(o => o.normalizado === b.lote_base);
+  abrir(b.batch, `${b.linea||''} · ${b.n_muestras||0} muestra(s)`, b.estado,
+    grp('Veredicto del laboratorio', (b.motivo_lab?`<div class="mot">${esc(b.motivo_lab)}</div>`:'')+
+      (b.remuestreo?`<div class="note">Re-muestreo: ${esc(b.remuestreo)}</div>`:'')+
+      (!b.motivo_lab&&!b.remuestreo?'<div class="mut">Sin incumplimientos vigentes.</div>':''))+
+    ((b.motivo_detencion||b.motivo_operativo) ? grp('Bloqueo declarado',
+      (b.motivo_detencion?`<div class="mot">DETENCIÓN ${esc(b.motivo_detencion)}</div>`:'')+
+      (b.motivo_operativo?`<div class="mot">REGISTRO OPERATIVO ${esc(b.motivo_operativo)}</div>`:'')) : '')+
+    grp('Muestra', kv([['Presentación', esc(b.presentacion||'')], ['Tipo', esc(b.tipo||'')],
+      ['Observación', esc(b.observacion_lab||'')], ['Listeria', esc(b.listeria||'')],
+      ['RAM', b.ram_max!=null?nf(b.ram_max):''], ['Nitrito', b.nitrito!=null?b.nitrito.toFixed(1):''],
+      ['WPS', b.wps!=null?b.wps.toFixed(2)+' %':''],
+      ['Última', esc(String(b.ultima_muestra||'').slice(0,10))]]))+
+    grp('Lote en bodega', lo ? `<div class="acts"><button class="btn ghost" `+
+      `onclick="verLote('${esc(lo.normalizado)}')">Ver ${esc(lo.lote)} · ${nf(lo.cajas||0)} cajas</button></div>`
+      : '<div class="mut">Este código no aparece en ningún stock.</div>'));
 };
 
 // ---------------------------------------------------------------- correo -> detencion
