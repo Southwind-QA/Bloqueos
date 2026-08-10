@@ -167,9 +167,21 @@ La de PNC importa: ahí debería estar físicamente lo declarado no conforme.
 
 **Pasos manuales que no van al repositorio:**
 
-- `alter role motor_bloqueos login password '...'` — la credencial del motor.
-- La cadena de conexión va en `BLOQUEOS_DB_URL`. Usa el **Session pooler**: la conexión
-  directa es solo IPv6 y no resuelve desde equipos sin IPv6.
+- `alter role motor_bloqueos login password '...'` — la credencial del motor. **Al rol
+  nunca se le había fijado una, y eso se descubrió el 10/08/2026**: las contraseñas se
+  guardan cifradas, no se pueden leer, solo reemplazar. Cambiarla no afecta a nadie más:
+  ese rol lo usa únicamente `cargar_supabase.py`; el sitio entra con la clave publishable
+  y RLS, y las migraciones se aplican como `postgres`.
+- La cadena de conexión va en `BLOQUEOS_DB_URL`, hoy en el `.env` local (ver
+  `.env.ejemplo`). Usa el **Session pooler**, y el usuario lleva el project ref pegado
+  con un punto: `motor_bloqueos.<project-ref>`. Sin eso el pooler responde
+  `no tenant identifier provided`. La conexión directa es solo IPv6 y no resuelve desde
+  equipos sin IPv6.
+- **Conviene que la clave sea larga pero solo de letras y números.** Con `# @ / : % ?`
+  hay que codificarla dentro de la URL (`%23 %40 %2F %3A %25 %3F`), y un error ahí da
+  errores que no se parecen a la causa. `bloqueos.bat revisar` descompone la cadena sin
+  mostrar la clave y prueba la conexión: es lo primero que hay que correr cuando algo
+  no conecta.
 - Las migraciones se aplicaron **a mano** en el SQL Editor. La integración de GitHub
   quedó conectada pero nunca ejecutó nada; no se investigó por qué.
 
@@ -192,6 +204,7 @@ fallar en silencio.
 | La etiqueta visible como clave primaria | `duplicate key` al cargar | La clave es el código normalizado |
 | Detectar el login por ausencia del formulario | Login correcto daba "credenciales inválidas" | Fishken devuelve la misma pantalla con un `window.open` |
 | Dos copias del mismo año del LAB-REG-08 | Se detectó al sincronizar | Habría duplicado 2.432 muestras sin avisar |
+| `cmd` cortaba el `.env` en el `#` de la clave | `failed to resolve host motor_bloqueos.xxxx`: psycopg tomaba el usuario como servidor | Un error de conexión rara vez nombra su causa. Ahora el `.env` lo interpreta Python y `revisar` descompone la cadena |
 | La consulta de packing list no miraba el registro operativo | Al incorporarlo: un lote bloqueado por correo con laboratorio conforme salía LIBERADO | La consulta resuelve contra el lab; cada origen nuevo hay que llevarlo **también** ahí, o el agujero queda justo en la pregunta que más se hace |
 | Leer las filas sin estado como si no existieran | 18.221 cajas figuraban liberadas, 11.551 de ellas declaradas por listeria | Una columna vacía es un dato: hay que averiguar qué convención la deja vacía antes de ignorarla |
 
