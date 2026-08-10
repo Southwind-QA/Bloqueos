@@ -395,7 +395,8 @@ async function entrar(){
   // personas autenticadas ven lo mismo, asi que no hay nada que filtrar por
   // usuario. Tenerlos en memoria hace instantanea la busqueda por prefijo.
   try {
-    [L, B, DET] = await Promise.all([traerTodo('lote'), traerTodo('batch'), traerDet()]);
+    [L, B, DET, CRIT_VER] = await Promise.all([traerTodo('lote'), traerTodo('batch'),
+                                               traerDet(), traerCriterioVigente()]);
   } catch(e) {
     $('sub').textContent = 'error al cargar';
     return alert('No se pudieron leer los datos: ' + e.message);
@@ -554,6 +555,80 @@ window.guardarDet = async () => {
   alert(filas.length+' detención(es) registradas. El próximo cruce ya las considera.');
 };
 
+// ------------------------------------------------------------------- firmar
+// Una firma no se borra: la tabla es append-only y ni el admin puede editarla.
+// Si queda mal, se anula con otra firma. Por eso aqui se pide evidencia y se
+// avisa antes, en vez de dejar deshacer despues.
+let CRIT_VER = null, FIRMA = null;
+
+async function traerCriterioVigente(){
+  const {data, error} = await sb.from('criterio_version').select('id, huella')
+    .is('hasta', null).order('desde', {ascending:false}).limit(1);
+  if(error || !data || !data.length){
+    console.warn('criterio vigente:', error && error.message);
+    return null;
+  }
+  return data[0];
+}
+
+window.firmar = (tipo, ref) => {
+  if(!yo.puede_firmar) return alert('Tu cuenta no puede firmar liberaciones.');
+  if(!CRIT_VER) return alert('No se pudo leer la versión de criterios vigente. '+
+    'Una firma tiene que quedar atada a la norma con la que se firmó, así que no '+
+    'se puede firmar sin eso.');
+  const o = tipo === 'lote' ? L.find(x => x.normalizado === ref) : null;
+  const d = tipo === 'detencion' ? DET.find(x => x.id === ref) : null;
+  FIRMA = {tipo, ref};
+  const evid = o ? (o.evidencia || '') : '';
+  const quePasa = tipo === 'lote'
+    ? `El lote <b>${esc(o.lote)}</b> pasa a LIBERADO POR DECISION en el próximo cruce`
+      + (o.cajas ? `, con sus <b>${nf(o.cajas)} cajas</b>` : '') + '.'
+    : `La detención <b>${esc(d.id)}</b> del lote <b>${esc(d.lote)}</b> deja de bloquear.`;
+  abrir('Firmar', yo.nombre, null,
+    `<div class="aviso"><span>&#9888;</span><div><b>Esto no se puede deshacer.</b> `+
+    'La firma queda con tu nombre y la hora, y no se borra: si queda mal, se anula con '+
+    'otra firma. Firma solo lo que revisaste.</div></div>'+
+    `<div class="note" style="margin:12px 0">${quePasa}</div>`+
+    grp('Evidencia', '<label class="fld" for="f-evid">Con qué se libera '+
+      '(códigos y fechas de laboratorio). Obligatorio.</label>'+
+      `<textarea id="f-evid" style="min-height:80px">${esc(evid)}</textarea>`)+
+    grp('Mercados', '<label class="fld" for="f-merc">Para qué mercados. Vacío = todos.</label>'+
+      '<input id="f-merc" placeholder="Nacional / Exportación / USA">')+
+    grp('Comentario', '<label class="fld" for="f-com">Por qué se libera.</label>'+
+      '<input id="f-com" placeholder="Motivo de la decisión">')+
+    `<div class="note">Se firma contra la norma vigente: <span class="mut">${esc(CRIT_VER.huella)}</span></div>`+
+    '<div class="acts"><button class="btn" onclick="confirmarFirma()">Firmar</button>'+
+    '<button class="btn ghost" onclick="cerrar()">Cancelar</button></div>');
+};
+
+window.confirmarFirma = async () => {
+  const evid = $('f-evid').value.trim();
+  if(!evid) return alert('La evidencia es obligatoria: sin ella, dentro de seis meses '+
+    'nadie puede saber contra qué se liberó.');
+  const merc = $('f-merc').value.split(/[\/,;]/).map(s=>s.trim()).filter(Boolean);
+  const fila = {tipo: FIRMA.tipo === 'lote' ? 'LIBERACION' : 'CIERRE DETENCION',
+    evidencia: evid, mercados: merc.length ? merc : null,
+    comentario: $('f-com').value.trim() || null,
+    criterio_ver: CRIT_VER.id, firmado_por: yo.id};
+  if(FIRMA.tipo === 'lote') fila.lote = FIRMA.ref;
+  else fila.detencion_id = FIRMA.ref;
+  const {error} = await sb.from('decision').insert(fila);
+  if(error){
+    const rls = /row-level security|permission/i.test(error.message);
+    return alert(rls ? 'Tu cuenta no tiene permiso para firmar. Hace falta puede_firmar, '+
+      'y solo se puede firmar a nombre propio.' : 'No se pudo firmar: '+error.message);
+  }
+  if(FIRMA.tipo === 'detencion'){
+    const {error: e2} = await sb.from('detencion').update({estado:'LIBERADA'})
+      .eq('id', FIRMA.ref);
+    if(e2) console.warn('no se pudo marcar la detencion como liberada:', e2.message);
+    DET = await traerDet(); pintaDet();
+  }
+  cerrar();
+  alert('Firmado. El próximo cruce lo toma; en pantalla se ve recién entonces, '+
+    'porque el estado del lote lo recalcula el motor.');
+};
+
 async function traerDet(){
   const {data, error} = await sb.from('detencion').select('*').order('id', {ascending:false});
   if(error){console.warn('detenciones:', error.message); return [];}
@@ -570,7 +645,9 @@ window.pintaDet = () => {
   $('r-det').innerHTML = d.length ? '<div class="tw"><table><thead><tr><th>ID</th>'+
     '<th>Correo</th><th>Tipo</th><th>Lote</th><th>Producto</th><th>Alcance</th>'+
     '<th>Evento</th><th>Criterios</th><th>Estado</th></tr></thead><tbody>'+
-    d.map(x=>`<tr><td class="mono">${esc(x.id)}</td><td class="sec">${esc(String(x.fecha_correo).slice(0,10))}</td>`+
+    d.map(x=>`<tr class="clic" tabindex="0" onclick="verDetencion('${esc(x.id)}')" `+
+    `onkeydown="if(event.key==='Enter')verDetencion('${esc(x.id)}')">`+
+    `<td class="mono">${esc(x.id)}</td><td class="sec">${esc(String(x.fecha_correo).slice(0,10))}</td>`+
     `<td class="sec">${esc(x.tipo)}</td><td class="mono">${esc(x.lote)}</td>`+
     `<td class="sec">${esc(x.producto||'')}</td><td class="sec">${esc(x.alcance)}</td>`+
     `<td class="sec">${esc(String(x.fecha_evento).slice(0,10))}</td>`+
@@ -833,8 +910,76 @@ window.verLote = n => {
       ['Bodegas',esc((o.bodegas||[]).join(' / '))],['Clientes',esc((o.clientes||[]).join(' / '))],
       ['Productos',esc((o.productos||[]).join(' / '))]]) : '<div class="mut">No aparece en ningún stock.</div>')+
     (o.liberacion_declarada ? grp('Liberación declarada', kv([['Fecha',esc(o.liberacion_declarada)],
-      ['Mercados',esc((o.mercados_liberados||[]).join('/'))],['Fuente',esc(o.fuente_liberacion)]])) : ''));
+      ['Mercados',esc((o.mercados_liberados||[]).join('/'))],['Fuente',esc(o.fuente_liberacion)]])) : '')+
+    grp('Firmar la liberación', firmaLote(o)));
 };
+// Solo se ofrece firmar lo que ya tiene con que liberarse. Un BLOQUEADO sin
+// respaldo no se firma desde aqui: primero hay que resolver lo que lo bloquea.
+function firmaLote(o){
+  if(o.estado === 'LIBERADO' || o.estado === 'LIBERADO POR DECISION')
+    return '<div class="mut">Este lote no está bloqueado.</div>';
+  if(o.estado === 'PNC')
+    return '<div class="mut">Un PNC no se libera: se dispone.</div>';
+  if(!yo.puede_firmar)
+    return '<div class="mut">Tu cuenta no puede firmar liberaciones.</div>';
+  const listo = o.estado === 'CANDIDATO A LIBERAR';
+  return (listo
+    ? '<div class="note">Este lote <b>ya tiene con qué liberarse</b> y solo falta la firma.</div>'
+    : '<div class="aviso"><span>&#9888;</span><div><b>Este lote sigue bloqueado.</b> '+
+      'Lo que lo bloquea no está resuelto, así que firmarlo es pasar por encima del '+
+      'criterio, no aplicarlo. Revisa el motivo antes.</div></div>')+
+    `<div class="acts"><button class="btn${listo?'':' ghost'}" `+
+    `onclick="firmar('lote','${esc(o.normalizado)}')">Firmar la liberación</button></div>`;
+}
+// Una detencion no se entiende sola: lo que importa es si el laboratorio ya
+// respondio lo que ella pide, y eso vive en el lote. Por eso el detalle cruza las
+// dos cosas y desde aqui se llega al lote de un clic.
+window.verDetencion = id => {
+  const x = DET.find(d => d.id === id); if(!x) return;
+  const n = norm(x.lote);
+  const lotes = L.filter(o => emparenta(o.normalizado, n));
+  const crit = (x.criterios||[]);
+  const cerrada = x.estado === 'LIBERADA';
+  abrir(x.lote, `${x.tipo} · ${x.id}`, x.estado,
+    grp('Qué se declaró', kv([
+      ['Fecha del correo', esc(String(x.fecha_correo).slice(0,10))],
+      ['Fecha del evento', esc(String(x.fecha_evento).slice(0,10))],
+      ['Emitido por', esc(x.emitido_por)],
+      ['Producto', esc(x.producto||'')],
+      ['Alcance', esc(x.alcance) + (x.cantidad_kg?` · ${nf(x.cantidad_kg)} kg`:'')],
+      ['Resolución', esc(x.resolucion)],
+      ['Descripción', esc(x.descripcion||'')],
+      ['Observación', esc(x.observacion||'')],
+      ['Origen', esc(x.origen||'')]]))+
+    grp('Cómo se cierra', crit.length
+      ? `<div>Requiere una muestra <b>posterior al ${esc(String(x.fecha_evento).slice(0,10))}</b> `+
+        `que mida <b>${esc(crit.join(', '))}</b> y salga conforme. Una muestra anterior al `+
+        'evento no es evidencia, y una que no midió lo que falló tampoco.</div>'+
+        (x.alcance && x.alcance.startsWith('PARCIAL')
+          ? '<div class="note">Alcance parcial: sin identificar las cajas, el cruce marca el '+
+            'lote completo.</div>' : '')
+      : '<div><b>No se cierra contra laboratorio.</b> '+(x.estado==='PNC'
+          ? 'Es un PNC: no se libera, se dispone.'
+          : 'El motivo no lo mide el laboratorio; solo lo cierra una decisión firmada.')+'</div>')+
+    grp(`Qué dice el cruce (${lotes.length} lote${lotes.length===1?'':'s'})`,
+      lotes.length ? mini(['Lote','Estado','Cajas','Qué dice el laboratorio'],
+        lotes.map(o => [`<span class="mono clic" onclick="verLote('${esc(o.normalizado)}')">`+
+          `${esc(o.lote)}</span>`, chip(o.estado), nf(o.cajas||0),
+          esc(o.motivo_lab || o.historia_remuestreo || 'sin incumplimientos vigentes')]))
+        : '<div class="mut">Este lote no aparece en el cruce: puede que no esté en stock ni '+
+          'tenga resultados de laboratorio. No es una liberación.</div>')+
+    (cerrada ? '' : grp('Firmar', puedeFirmarDet(x, lotes))));
+};
+function puedeFirmarDet(x, lotes){
+  if(!yo.puede_firmar) return '<div class="mut">Tu cuenta no puede firmar liberaciones.</div>';
+  if(x.estado === 'PNC') return '<div class="mut">Un PNC no se libera: se dispone. '+
+    'Si la disposición ya se resolvió, corresponde anular la detención, no liberarla.</div>';
+  return '<div class="note">Cerrar esta detención es una firma tuya, con tu nombre, y no se '+
+    'puede borrar después: si queda mal, se anula con otra firma.</div>'+
+    `<div class="acts"><button class="btn" onclick="firmar('detencion','${esc(x.id)}')">`+
+    'Cerrar la detención con mi firma</button></div>';
+}
+
 window.verLinea = i => {
   const x = ULT[i]; if(!x) return;
   if(x.r && x.r.hits.length===1){

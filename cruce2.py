@@ -673,11 +673,58 @@ if blo:
 # ------------------------------------------------- DECISIONES FIRMADAS
 # Lo declarado por Calidad. El motor lo lee y nunca lo escribe. Es lo unico
 # que convierte un CANDIDATO A LIBERAR en LIBERADO.
+#
+# Se firman en el sitio y quedan en Postgres, igual que las detenciones. El xlsx
+# es historico: una firma que el motor no lee es producto que sigue figurando
+# bloqueado despues de que alguien se hizo responsable de liberarlo.
 F_DEC = config.ruta("REGISTRO DECISIONES.xlsx")
-dec = pd.DataFrame(columns=["ID", "FECHA", "TIPO", "LOTE", "BATCH", "DETENCION",
-                            "ANULA", "MERCADOS", "EVIDENCIA", "COMENTARIO",
-                            "FIRMADO POR", "RUT", "HUELLA DE CRITERIOS AL FIRMAR"])
-if os.path.exists(F_DEC):
+COLS_DEC = ["ID", "FECHA", "TIPO", "LOTE", "BATCH", "DETENCION", "ANULA", "MERCADOS",
+            "EVIDENCIA", "COMENTARIO", "FIRMADO POR", "RUT",
+            "HUELLA DE CRITERIOS AL FIRMAR"]
+dec = pd.DataFrame(columns=COLS_DEC)
+
+
+def decisiones_de_postgres():
+    """Firmas desde la base. None si no se puede, para caer al xlsx."""
+    url = os.environ.get("BLOQUEOS_DB_URL")
+    if not url:
+        return None
+    try:
+        import psycopg
+    except ImportError:
+        return None
+    try:
+        with psycopg.connect(url, connect_timeout=15) as cx:
+            with cx.cursor() as cur:
+                # el nombre de quien firma vive en usuario, que el motor no puede
+                # leer: se resuelve en la vista y aqui basta con el id
+                cur.execute("select d.id, d.firmado_en, d.tipo, d.lote, d.batch, "
+                            "d.detencion_id, d.anula, d.mercados, d.evidencia, "
+                            "d.comentario, d.firmado_por::text, v.huella "
+                            "from bloqueos.decision d "
+                            "left join bloqueos.criterio_version v on v.id = d.criterio_ver "
+                            "order by d.id")
+                filas = cur.fetchall()
+    except Exception as e:                                          # noqa: BLE001
+        print("  (no se pudo leer decision en Postgres):", str(e).splitlines()[0][:90])
+        return None
+    if not filas:
+        return None
+    d = pd.DataFrame(filas, columns=["ID", "FECHA", "TIPO", "LOTE", "BATCH", "DETENCION",
+                                     "ANULA", "MERCADOS", "EVIDENCIA", "COMENTARIO",
+                                     "FIRMADO POR", "HUELLA DE CRITERIOS AL FIRMAR"])
+    d["MERCADOS"] = d["MERCADOS"].map(
+        lambda v: "/".join(v) if isinstance(v, (list, tuple)) else (v or ""))
+    d["RUT"] = ""
+    return d[COLS_DEC]
+
+
+_dpg = decisiones_de_postgres()
+FUENTE_DEC = "Postgres (bloqueos.decision)"
+if _dpg is not None:
+    dec = _dpg
+elif os.path.exists(F_DEC):
+    FUENTE_DEC = os.path.basename(F_DEC) + " (historico)"
     try:
         _d = pd.read_excel(F_DEC, sheet_name="DECISIONES", header=4).dropna(how="all")
         _d = _d[_d["ID"].notna()]
@@ -693,7 +740,7 @@ if len(dec):
     dec["_BATCH"] = dec["BATCH"].map(norm, na_action="ignore")
     anuladas = set(dec.loc[dec["_TIPO"] == "ANULACION", "ANULA"].dropna().astype(str))
     dec = dec[~dec["ID"].astype(str).isin(anuladas)]
-    print(f"  decisiones firmadas vigentes: {len(dec)}")
+    print(f"  decisiones firmadas vigentes: {len(dec)} desde {FUENTE_DEC}")
 else:
     dec["_FECHA"] = pd.NaT
     dec["_TIPO"] = ""
