@@ -12,7 +12,9 @@ rem  Las credenciales NO van aqui: se leen de .env, que esta en .gitignore.
 rem  Copia .env.ejemplo a .env y completalo. Si prefieres tenerlas como
 rem  variables de usuario de Windows, tambien sirve: .env solo las agrega.
 rem ============================================================================
-setlocal enabledelayedexpansion
+rem Sin expansion retardada a proposito: con ella activa, un signo ! dentro de una
+rem clave desaparece al leer el .env y la conexion falla sin decir por que.
+setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
 set "INICIO=%TIME%"
@@ -29,13 +31,14 @@ shift
 goto :args
 :finargs
 
-rem Una linea vacia en .env NO borra lo que ya esta en el entorno: si alguien deja
-rem FISHKEN_USER= sin completar porque ya lo tiene como variable de Windows, el
-rem .env no debe pisarselo con nada.
+rem El .env lo interpreta Python, no cmd. Con "for /f" la linea se corta en el
+rem primer # -aunque venga dentro de una clave- y la cadena de conexion llega
+rem truncada: psycopg entonces toma el usuario como host y el error no se parece
+rem en nada a la causa. Una linea vacia no borra lo que ya esta en el entorno.
 if exist ".env" (
-  for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
-    if not "%%~A"=="" if not "%%~B"=="" set "%%~A=%%~B"
-  )
+  python leer_env.py > "%TEMP%\bloqueos_env.bat" 2>nul
+  if not errorlevel 1 call "%TEMP%\bloqueos_env.bat"
+  del "%TEMP%\bloqueos_env.bat" 2>nul
 )
 
 where python >nul 2>&1
@@ -58,7 +61,7 @@ if defined REVISAR (
   if defined SINSUBIR (echo   sinsubir ............ activo, no subiria a Postgres)
   if exist ".env" (echo   .env ................ presente) else (echo   .env ................ no esta, se usan las variables de Windows)
   if "%FISHKEN_USER%%FISHKEN_USUARIO%"=="" (echo   Fishken ............. SIN credenciales, no se puede bajar stock) else (echo   Fishken ............. listo)
-  if "%BLOQUEOS_DB_URL%"=="" (echo   Postgres ............ SIN cadena, no se puede subir) else (echo   Postgres ............ listo)
+  if "%BLOQUEOS_DB_URL%"=="" (echo   Postgres ............ SIN cadena, no se puede subir) else (python revisar_url.py)
   python -c "import os,config,glob;print('  Carpeta de datos ....', config.BASE);print('  Laboratorio .........', 'listo' if os.path.isdir(config.DIR_LAB) else 'NO se llega a '+config.DIR_LAB);print('  Materia prima .......', 'listo' if os.path.isdir(config.DIR_MP) else 'NO se llega a '+config.DIR_MP);print('  Archivos de stock ...', len([x for x in glob.glob(config.ruta('FRIG*.xlsx'))]));print('  LAB-REG-08 ..........', len(glob.glob(config.ruta(config.GLOB_LAB))));print('  PRO-REG-46 ..........', len(glob.glob(config.ruta(config.GLOB_MP))))"
   python -c "import psycopg" 2>nul && (echo   Driver de Postgres .. listo) || (echo   Driver de Postgres .. FALTA: python -m pip install "psycopg[binary]")
   goto :fin
