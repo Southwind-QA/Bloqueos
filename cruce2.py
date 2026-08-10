@@ -940,27 +940,34 @@ def historia(rows, c):
     la decision la firma Calidad.
     """
     m = mide(rows, c).sort_values("_FECHA")
-    vacio = {"estado": "SIN DATO", "txt": "", "falla": pd.NaT, "ok": pd.NaT, "n_post": 0}
+    # n y n_mal son el tamano de la evidencia: "PRESENCIA" no dice lo mismo si fue
+    # una muestra de una que dos de seis, y quien firma necesita saberlo.
+    vacio = {"estado": "SIN DATO", "txt": "", "falla": pd.NaT, "ok": pd.NaT, "n_post": 0,
+             "n": 0, "n_mal": 0}
     if m.empty:
         # medido pero no exigible: se distingue de "nadie lo midio", porque la razon
         # de la liberacion es distinta y hay que poder rastrearla
         td = con_dato(rows, c)
         if len(td):
-            return {**vacio, "estado": "NO APLICA", "txt": por_que_no_aplica(td, c)}
+            return {**vacio, "estado": "NO APLICA", "txt": por_que_no_aplica(td, c),
+                    "n": len(td)}
         return vacio
     malo = m.apply(lambda r: _falla(r, c), axis=1)
+    cuenta = {"n": len(m), "n_mal": int(malo.sum())}
     if not malo.any():
-        return {**vacio, "estado": "CONFORME"}
+        return {**vacio, **cuenta, "estado": "CONFORME",
+                "txt": f"{c.title()} conforme en {len(m)} muestra(s)"}
     ult = m[malo].iloc[-1]
     post = m[m["_FECHA"] > ult["_FECHA"]]
+    de_n = f" ({int(malo.sum())} de {len(m)} muestra(s) analizada(s))"
     if len(post) and not post.apply(lambda r: _falla(r, c), axis=1).any():
         obs = " / ".join(sorted({str(v).strip() for v in post["OBSERVACIÓN"].dropna()}))[:60]
-        return {"estado": "REMUESTREO CONFORME",
-                "txt": (f"{_texto(ult, c)} el {ult['_FECHA']:%d/%m/%Y}, luego {len(post)} "
+        return {**cuenta, "estado": "REMUESTREO CONFORME",
+                "txt": (f"{_texto(ult, c)} el {ult['_FECHA']:%d/%m/%Y}{de_n}, luego {len(post)} "
                         f"muestra(s) conforme(s) hasta el {post['_FECHA'].max():%d/%m/%Y}"
                         + (f" [{obs}]" if obs else "")),
                 "falla": ult["_FECHA"], "ok": post["_FECHA"].max(), "n_post": len(post)}
-    return {"estado": "NO CONFORME", "txt": _texto(ult, c),
+    return {**cuenta, "estado": "NO CONFORME", "txt": _texto(ult, c) + de_n,
             "falla": ult["_FECHA"], "ok": pd.NaT, "n_post": len(post)}
 
 
@@ -1307,12 +1314,16 @@ for l in universo:
             if mp_crit and mp_crit <= _ok:
                 mp_cand += mp_pend
                 mp_pend = 0
+                # cuantas de las posteriores midieron cada criterio: "conforme" sin el
+                # tamano de la evidencia no alcanza para decidir una firma
+                _det = "; ".join(
+                    f"{c.title()} conforme en {len(mide(_post, c))} de {len(_post)}"
+                    for c in sorted(mp_crit))
                 propuestas.append(
                     f"Materia prima: el producto terminado tiene {len(_post)} muestra(s) "
-                    f"posterior(es) al {mp_falla:%d/%m/%Y} conforme(s) en "
-                    f"{', '.join(sorted(mp_crit))}, que es lo que la materia prima traia "
-                    "mal. Queda listo para liberar, pero no se libera solo: la firma es "
-                    "de Calidad.")
+                    f"posterior(es) al {mp_falla:%d/%m/%Y} y {_det}, que es lo que la "
+                    "materia prima traia mal. Queda listo para liberar, pero no se libera "
+                    "solo: la firma es de Calidad.")
             elif _ok:
                 propuestas.append(
                     f"Materia prima: el producto terminado dio conforme en "
