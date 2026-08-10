@@ -7,9 +7,16 @@ declaradas por correo, y determina qué producto está bloqueado y por qué.
 > tomadas, las trampas del dominio y lo que sigue abierto. Este archivo explica cómo
 > funciona el código; ese explica por qué.
 
+Doble clic en **`bloqueos.bat`**, o desde la terminal:
+
 ```bash
 python actualizar.py
 ```
+
+El `.bat` hace el ciclo entero —baja el stock, cruza, genera la página y sube a
+Postgres— y admite `sinstock` para reusar el stock ya bajado y `sinsubir` para no
+tocar la base. Las credenciales las lee de `.env`, que no va al repositorio: copia
+`.env.ejemplo` y complétalo.
 
 Deja dos entregables en la carpeta: el Excel de análisis y `CONSULTA BLOQUEOS.html`,
 una página autocontenida para consultar sin conexión. Toma unos 4 minutos, casi
