@@ -542,8 +542,8 @@ def incumple(r, criterio):
     return False, True, f"criterio no reconocido: {criterio}"
 
 
-# ------------------------------------------------- REGISTRO OPERATIVO
-# Bloqueo 2026.xlsm es el registro operativo. Cada fila es un bloqueo declarado
+# ------------------------------------------------- DETENCION HISTORICA
+# Bloqueo 2026.xlsm es el Excel de detenciones historicas. Cada fila es un bloqueo declarado
 # por una persona, con su motivo escrito. La hoja Historia es el log de
 # liberaciones con su mercado.
 #
@@ -619,7 +619,7 @@ if os.path.exists(F_OPE):
     except Exception as e:                                              # noqa: BLE001
         print("  (no se pudo leer la hoja de codigos bloqueados):", e)
 else:
-    print("  (sin Bloqueo 2026.xlsm: no hay registro operativo que cruzar)")
+    print("  (sin Bloqueo 2026.xlsm: no hay detencion historica que cruzar)")
 
 if reg:
     _lib = pd.DataFrame(reg)
@@ -1106,7 +1106,7 @@ for _l, _g in lab.groupby("_L"):
     if any(_a[c]["estado"] == "NO CONFORME" for c in CRIT):
         lab_solo.append(_l)
 
-# Y lo mismo con el registro operativo: un lote bloqueado por correo o por SAP puede
+# Y lo mismo con las detenciones historicas: un lote bloqueado por correo o por SAP puede
 # haberse despachado, o estar en una bodega que no bajamos. Si queda fuera del universo,
 # consultarlo devuelve "no reconocido", que es exactamente el error que ya cometimos una
 # vez con los lotes reprobados sin stock.
@@ -1119,7 +1119,7 @@ ope_solo = [o for o in lotes_ope
 universo = lotes_stock + huerfanos + lab_solo + ope_solo
 print(f"\nUniverso: {len(lotes_stock)} lotes en stock + {len(huerfanos)} solo con detencion "
       f"+ {len(lab_solo)} solo en laboratorio y no conformes "
-      f"+ {len(ope_solo)} solo en el registro operativo")
+      f"+ {len(ope_solo)} solo en detenciones historicas")
 
 # Posibles typos de @ / B: calzarian si se ignorara el prefijo.
 # No se marca cuando ambas variantes tienen respaldo propio en lab o en el registro:
@@ -1232,7 +1232,7 @@ for l in universo:
             propuestas.append(f"{d['ID']}: LIBERABLE segun lab - {rp['n']} muestra(s) posterior(es) "
                               f"conforme(s) en {', '.join(crit)}. Requiere firma de Calidad.")
 
-    # ---- bloqueos declarados en el registro operativo
+    # ---- bloqueos declarados en el Excel historico
     # Mismo tratamiento que una detencion: bloquea por SU motivo, y solo lo levanta
     # una muestra posterior al bloqueo que vuelva a medir ESE criterio y salga
     # conforme. La diferencia es que alla el criterio lo declara una persona y aca
@@ -1249,7 +1249,7 @@ for l in universo:
             etq = " / ".join(txts[:2])[:90] or "sin motivo escrito"
             motivos_ope.append(f"{etq} ({len(g)} registro(s)"
                                + (f", ultimo {f:%d/%m/%Y}" if pd.notna(f) else ", sin fecha") + ")")
-            enc = f"Registro operativo [{etq}]"
+            enc = f"Detencion historica [{etq}]"
             if not crit:
                 ope_pend += 1
                 propuestas_ope.append(f"{enc}: NO LIBERABLE - el motivo no se mide en "
@@ -1329,7 +1329,7 @@ for l in universo:
     # ---- estado consolidado
     # Los origenes se acumulan y cada uno tiene que cerrarse por su cuenta.
     bloquean = [nombre for nombre, hay in (("LAB", motivos_lab), ("DETENCION", motivos_det),
-                                           ("REGISTRO OPERATIVO", ope_pend),
+                                           ("DETENCION HISTORICA", ope_pend),
                                            ("MATERIA PRIMA", mp_pend)) if hay]
     if hay_pnc:
         estado, origen = "PNC", "DETENCION"
@@ -1339,7 +1339,7 @@ for l in universo:
         # fallo y se re-muestreo conforme cubriendo el criterio: no se libera solo
         estado = "CANDIDATO A LIBERAR"
         origen = " + ".join((["LAB"] if motivos_rem else [])
-                            + (["REGISTRO OPERATIVO"] if ope_ok else [])
+                            + (["DETENCION HISTORICA"] if ope_ok else [])
                             + (["MATERIA PRIMA"] if mp_cand else []))
     elif len(rows_lab) == 0 or all(agg[c]["estado"] == "SIN DATO" for c in CRIT):
         estado, origen = "SIN ANALISIS", ""
@@ -1366,7 +1366,7 @@ for l in universo:
                    "puede ser lag de informacion, producto aun en proceso, ya despachado, "
                    "bodega no incluida, o lote mal escrito. Requiere revision.")
     elif not en_stock and len(opes) and not len(rows_lab):
-        obs.append("Lote bloqueado en el registro operativo que no aparece en ningun stock "
+        obs.append("Lote bloqueado en el Excel de detenciones historicas que no aparece en ningun stock "
                    "ni tiene resultados de laboratorio: probablemente ya despachado o de una "
                    "bodega que no se baja. Figura para que consultarlo no devuelva "
                    "'no reconocido'.")
@@ -1483,13 +1483,13 @@ for l in universo:
             dets_v["TIPO DE DESVIACION"].dropna().astype(str).str.strip().unique())),
         "MOTIVO - LABORATORIO": " | ".join(motivos_lab),
         "MOTIVO - DETENCION": " | ".join(motivos_det),
-        "MOTIVO - REGISTRO OPERATIVO": " | ".join(motivos_ope),
+        "MOTIVO - DETENCION HISTORICA": " | ".join(motivos_ope),
         "MOTIVO - MATERIA PRIMA": " | ".join(motivos_mp),
-        "FECHA DE BLOQUEO OPERATIVO": (opes["FECHA"].max() if len(opes) else pd.NaT),
+        "FECHA DE DETENCION HISTORICA": (opes["FECHA"].max() if len(opes) else pd.NaT),
         # la consulta de packing list resuelve contra el laboratorio, que no sabe
-        # nada del registro operativo: sin esta marca un lote bloqueado por correo
+        # nada de las detenciones historicas: sin esta marca un lote bloqueado por correo
         # con lab conforme saldria LIBERADO en la consulta
-        "REGISTRO OPERATIVO BLOQUEA": "SI" if ope_pend else "",
+        "DETENCION HISTORICA BLOQUEA": "SI" if ope_pend else "",
         "MATERIA PRIMA BLOQUEA": "SI" if mp_pend else "",
         "PROPUESTA DE LIBERACION (no libera)": " || ".join(propuestas),
         "OBSERVACIONES": " | ".join(obs),
@@ -1540,7 +1540,7 @@ for b, g in lab.groupby("_U"):
     causas_b = [c for c in CRIT if hb[c]["estado"] == "NO CONFORME"]
     rem_b = [c for c in CRIT if hb[c]["estado"] == "REMUESTREO CONFORME"]
     dv = det[det["_L"].map(lambda x: emparenta(x, b)) & det["_VIGENTE"]]
-    # El registro operativo suele identificar el dia con el sufijo: aqui, que se
+    # La detencion historica suele identificar el dia con el sufijo: aqui, que se
     # responde por unidad, hay que respetarlo. En el RESUMEN POR LOTE no se puede,
     # porque el stock no distingue dias y las cajas no se separan.
     ov = ope[ope["_U"].map(lambda x: alcanza(x, b))] if len(ope) else ope
@@ -1569,7 +1569,7 @@ for b, g in lab.groupby("_U"):
         "RE-MUESTREO CONFORME": " | ".join(hb[c]["txt"] for c in rem_b),
         "MOTIVO - DETENCION": " | ".join(f"{d['ID']} {d['TIPO DE DESVIACION']}"
                                          for _, d in dv.iterrows()),
-        "MOTIVO - REGISTRO OPERATIVO": motivo_ov,
+        "MOTIVO - DETENCION HISTORICA": motivo_ov,
         "LISTERIA": rb["listeria"] or "sin dato",
         "RAM MAX (UFC/g)": rb["ram"],
         "NITRITO PROMEDIO (ppm)": rb["nitrito"],
@@ -1721,10 +1721,10 @@ camlog = camlog.iloc[::-1]          # lo mas reciente primero
 mapa = res.set_index("LOTE (normalizado)")
 d_st = stock.copy()
 for col in ("ESTADO", "ORIGEN DEL BLOQUEO", "MOTIVO - LABORATORIO", "MOTIVO - DETENCION",
-            "MOTIVO - REGISTRO OPERATIVO", "MOTIVO - MATERIA PRIMA"):
+            "MOTIVO - DETENCION HISTORICA", "MOTIVO - MATERIA PRIMA"):
     d_st[col] = d_st["_L"].map(mapa[col])
 cols_st = (["ESTADO", "ORIGEN DEL BLOQUEO", "MOTIVO - LABORATORIO", "MOTIVO - DETENCION",
-            "MOTIVO - REGISTRO OPERATIVO", "MOTIVO - MATERIA PRIMA", "BODEGA"]
+            "MOTIVO - DETENCION HISTORICA", "MOTIVO - MATERIA PRIMA", "BODEGA"]
            + [c for c in stock.columns if not c.startswith("_") and c != "BODEGA"])
 d_st = d_st[cols_st]
 
@@ -1780,12 +1780,12 @@ for _n46 in _f46:
                     "DESDE": mp["_FECHA"].min() if len(mp) else pd.NaT,
                     "HASTA": mp["_FECHA"].max() if len(mp) else pd.NaT,
                     "ARCHIVO GUARDADO": _guardado(_n46)})
-fuentes.append({"FUENTE": "Registro operativo (bloqueos abiertos)",
+fuentes.append({"FUENTE": "Detenciones historicas (abiertas)",
                 "ARCHIVO": config.ARCH_OPERATIVO, "REGISTROS": len(ope),
                 "DESDE": ope["FECHA"].min() if len(ope) else pd.NaT,
                 "HASTA": ope["FECHA"].max() if len(ope) else pd.NaT,
                 "ARCHIVO GUARDADO": _guardado(config.ARCH_OPERATIVO)})
-fuentes.append({"FUENTE": "Registro operativo (liberaciones)",
+fuentes.append({"FUENTE": "Detenciones historicas (liberaciones)",
                 "ARCHIVO": config.ARCH_OPERATIVO, "REGISTROS": len(libu),
                 "DESDE": libu["FECHA"].min() if len(libu) else pd.NaT,
                 "HASTA": libu["FECHA"].max() if len(libu) else pd.NaT,
@@ -1828,7 +1828,7 @@ ws["A2"] = (f"Laboratorio (derivado, se recalcula): Listeria PRESENCIA en toda l
             "Listeria SOLO en linea refrigerada y en congelada con destino EE.UU. o "
             "Costa Rica (cliente con PMT); si el destino no se puede determinar, se aplica. "
             "Un criterio deja de estar vigente si hay re-muestreo posterior conforme que vuelva "
-            "a medirlo. Detencion (declarada por correo) y bloqueo del registro operativo "
+            "a medirlo. Detencion (declarada por correo) y detencion historica "
             "(Bloqueo 2026.xlsm, donde el Estado se escribe solo al liberar): bloquean aunque "
             "no haya resultado, cada uno por su motivo.")
 ws["A3"] = ("Los tres origenes se acumulan: un lote con varios debe cerrarlos todos. La columna de propuesta "
@@ -1893,7 +1893,7 @@ wb.save(OUT)
 
 # ----------------------------------------------------------------- consola
 print("\nLotes evaluados:", len(res), "| en stock:", len(lotes_stock),
-      "| solo detencion:", len(huerfanos), "| solo registro operativo:", len(ope_solo))
+      "| solo detencion:", len(huerfanos), "| solo detencion historica:", len(ope_solo))
 print(res["ESTADO"].value_counts().to_string())
 print("\nOrigen del bloqueo (lotes con stock):")
 print(res[(res["EN STOCK"] == "SI") & (res["ORIGEN DEL BLOQUEO"] != "")]
@@ -1902,9 +1902,9 @@ print(res[(res["EN STOCK"] == "SI") & (res["ORIGEN DEL BLOQUEO"] != "")]
 print("\n--- BLOQUEADOS / PNC (en stock) ---")
 v = res[res["ESTADO"].isin(["BLOQUEADO", "PNC"]) & (res["EN STOCK"] == "SI")]
 print(v[["LOTE", "ESTADO", "ORIGEN DEL BLOQUEO", "MOTIVO - LABORATORIO", "MOTIVO - DETENCION",
-         "MOTIVO - REGISTRO OPERATIVO", "CAJAS EN STOCK"]].to_string(index=False))
+         "MOTIVO - DETENCION HISTORICA", "CAJAS EN STOCK"]].to_string(index=False))
 print("\n--- PROPUESTAS DE LIBERACION ---")
-# Solo las accionables: con el registro operativo dentro, las no liberables son
+# Solo las accionables: con las detenciones historicas dentro, las no liberables son
 # cientos y tapan justamente lo que hay que revisar.
 _p = res[res["PROPUESTA DE LIBERACION (no libera)"] != ""]
 _ac = _p[_p["PROPUESTA DE LIBERACION (no libera)"].str.contains("LIBERABLE segun lab")]

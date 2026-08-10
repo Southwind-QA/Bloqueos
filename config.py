@@ -76,7 +76,7 @@ TXT_CONGELADA = ("carpaccio", "congelad")
 
 # ------------------------------------------------------------------ motivos declarados
 #
-# El registro operativo (Bloqueo 2026.xlsm) anota el motivo del bloqueo en texto
+# El Excel de detenciones historicas (Bloqueo 2026.xlsm) anota el motivo del bloqueo en texto
 # libre. Esta tabla traduce ese texto al criterio de laboratorio que puede
 # levantarlo: un bloqueo por listeria se cierra con listeria posterior conforme,
 # no con un nitrito conforme.
@@ -148,4 +148,4 @@ def huella_criterios():
             f"binomio wps/nitrito en refrigerada y en bacon/wheel: libera si "
             f"(nitrito>={LIM_NITRITO} y wps>{WPS_MIN}) o nitrito>{NIT_BINOMIO}; "
             "vigencia=ultimo resultado que cubre el criterio; "
-            "registro operativo=bloquea por su motivo hasta liberacion declarada")
+            "detencion historica=bloquea por su motivo hasta liberacion declarada")

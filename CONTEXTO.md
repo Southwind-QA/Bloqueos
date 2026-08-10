@@ -24,7 +24,7 @@ liberarse y solo espera una firma que hoy nadie puede dar**, porque `puede_firma
 está en `false` para todos. 95 lotes con stock, casi todos por materia prima.
 
 El salto respecto de la foto anterior (537 lotes, 14.048 cajas bloqueadas) son dos
-orígenes nuevos incorporados el 07/08/2026 —el registro operativo y la materia
+orígenes nuevos incorporados el 07/08/2026 —la detención histórica y la materia
 prima— más el binomio WPS/nitrito. Ver la sección 2.
 
 ---
@@ -38,7 +38,7 @@ este diseño evita:
 |---|---|---|---|
 | **Laboratorio** | Derivado de los resultados y los criterios | El motor | Entero, cada corrida |
 | **Detención** | Declarada por correo ante una desviación | Personas, desde el sitio | Nunca, solo se agrega |
-| **Registro operativo** | Declarado en `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
+| **Detención histórica** | Declarada en el Excel `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
 | **Materia prima** | Heredado: la MP venía no conforme | El motor, vía `PRO-REG-46` | Entero, cada corrida |
 
 Sus valores por omisión son **opuestos**, y es deliberado:
@@ -213,7 +213,7 @@ fallar en silencio.
 | Detectar el login por ausencia del formulario | Login correcto daba "credenciales inválidas" | Fishken devuelve la misma pantalla con un `window.open` |
 | Dos copias del mismo año del LAB-REG-08 | Se detectó al sincronizar | Habría duplicado 2.432 muestras sin avisar |
 | `cmd` cortaba el `.env` en el `#` de la clave | `failed to resolve host motor_bloqueos.xxxx`: psycopg tomaba el usuario como servidor | Un error de conexión rara vez nombra su causa. Ahora el `.env` lo interpreta Python y `revisar` descompone la cadena |
-| La consulta de packing list no miraba el registro operativo | Al incorporarlo: un lote bloqueado por correo con laboratorio conforme salía LIBERADO | La consulta resuelve contra el lab; cada origen nuevo hay que llevarlo **también** ahí, o el agujero queda justo en la pregunta que más se hace |
+| La consulta de packing list no miraba la detención histórica | Al incorporarlo: un lote bloqueado por correo con laboratorio conforme salía LIBERADO | La consulta resuelve contra el lab; cada origen nuevo hay que llevarlo **también** ahí, o el agujero queda justo en la pregunta que más se hace |
 | Leer las filas sin estado como si no existieran | 18.221 cajas figuraban liberadas, 11.551 de ellas declaradas por listeria | Una columna vacía es un dato: hay que averiguar qué convención la deja vacía antes de ignorarla |
 
 ---
@@ -228,7 +228,7 @@ fallar en silencio.
    puede dar. Todo lo demás que se construyó desemboca ahí.
 2. **Qué son VILA y VIMU**, y si las bodegas de inventario son stock real o un conteo
    paralelo. Si es lo segundo, sumarlas duplicaría.
-3. **44 lotes con conflicto**: figuran liberados en el registro operativo pero el
+3. **44 lotes con conflicto**: figuran liberados en la detención histórica pero el
    laboratorio mantiene un incumplimiento vigente. 2.866 cajas.
 4. **Las liberaciones declaradas se detienen el 19/12/2025.** Siete meses sin registrar
    ninguna, con 118 concentradas ese día. Esto ahora **bloquea producto**: si un bloqueo

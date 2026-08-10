@@ -33,7 +33,7 @@ diseño evita:
 |---|---|---|---|
 | **Laboratorio** | Derivado de los resultados y los criterios | El motor | Entero, en cada corrida |
 | **Detención** | Declarada por correo ante una desviación | Personas, desde el sitio | Nunca, solo se agrega |
-| **Registro operativo** | Declarado en `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
+| **Detención histórica** | Declarada en el Excel `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
 | **Materia prima** | Heredado: la MP venía no conforme | El motor, vía `PRO-REG-46` | Entero, en cada corrida |
 
 Sus valores por omisión son **opuestos**, y eso es deliberado:
@@ -111,8 +111,8 @@ Es decir: **libera si (nitrito ≥ 85 y WPS > 3,5) o nitrito > 100**. Escrita as
 la regla resuelve sola el caso sin WPS medido y hacia el lado correcto: con
 nitrito bajo 100 no se puede acreditar el binomio, así que no libera.
 
-Los criterios que puede levantar un motivo escrito a mano en el registro
-operativo también viven en `config.py`, en `MOTIVOS_LAB`. Ahí se traduce el texto
+Los criterios que puede levantar un motivo escrito a mano en una detención
+histórica también viven en `config.py`, en `MOTIVOS_LAB`. Ahí se traduce el texto
 libre (`presencia de LM`, `alto en ram`) al criterio que lo cierra. Un motivo que
 no calce con ninguno no es liberable contra el laboratorio.
 
@@ -165,7 +165,7 @@ Tres reglas transversales:
 | `LAB-REG-08*.xlsx` | Resultados de laboratorio. Uno por año, con estructura levemente distinta entre años |
 | `bloqueos.detencion` | Detenciones por correo. Se registran **en el sitio**; el motor solo las lee, y su rol ni siquiera tiene permiso para escribirlas |
 | `REGISTRO DETENCIONES.xlsx` | Las mismas hasta el 10/08/2026. Histórico: solo se usa si no hay conexión a la base |
-| `Bloqueo 2026.xlsm` | Registro operativo: bloqueos declarados con su motivo, y liberaciones con su mercado |
+| `Bloqueo 2026.xlsm` | Detención histórica: bloqueos declarados con su motivo, y liberaciones con su mercado |
 | `*PRO-REG-46*.xlsx` | Ingreso de materia prima por proveedor. Enlaza el lote del proveedor con el lote SW: lo único que permite heredar el bloqueo de la MP |
 
 Cada una tiene su propio corte, y la hoja `FUENTES` del Excel de salida lo deja

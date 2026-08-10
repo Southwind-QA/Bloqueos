@@ -59,9 +59,9 @@ for _, r in res.iterrows():
         "origen": txt(r["ORIGEN DEL BLOQUEO"]), "causas": lista(r["CAUSAS LAB"]),
         "tipos": lista(r["TIPOS DE DESVIACION"]),
         "lab": txt(r["MOTIVO - LABORATORIO"]), "det": txt(r["MOTIVO - DETENCION"]),
-        "ope": txt(r["MOTIVO - REGISTRO OPERATIVO"]),
+        "ope": txt(r["MOTIVO - DETENCION HISTORICA"]),
         "mp": txt(r["MOTIVO - MATERIA PRIMA"]),
-        "opeb": txt(r["REGISTRO OPERATIVO BLOQUEA"]) == "SI",
+        "opeb": txt(r["DETENCION HISTORICA BLOQUEA"]) == "SI",
         "mpb": txt(r["MATERIA PRIMA BLOQUEA"]) == "SI",
         "prop": txt(r["PROPUESTA DE LIBERACION (no libera)"]), "obs": txt(r["OBSERVACIONES"]),
         "listeria": txt(r["LISTERIA"]), "ram": num(r["RAM MAX (UFC/g)"]),
@@ -91,7 +91,7 @@ batches = [{
     "b": txt(r["BATCH"]), "n": txt(r["BATCH (normalizado)"]), "estado": txt(r["ESTADO"]),
     "causas": lista(r["CAUSAS LAB"]), "lab": txt(r["MOTIVO - LABORATORIO"]),
     "det": txt(r["MOTIVO - DETENCION"]),
-    "ope": txt(r.get("MOTIVO - REGISTRO OPERATIVO", "")),
+    "ope": txt(r.get("MOTIVO - DETENCION HISTORICA", "")),
     "nm": int(r["N MUESTRAS"]) if not pd.isna(r["N MUESTRAS"]) else 0,
     "ult": txt(r["ULTIMA MUESTRA"])[:10], "pres": txt(r["PRESENTACION"]),
     "tipo": txt(r["TIPO"]), "obs": txt(r["OBSERVACION LAB"]),
@@ -489,7 +489,7 @@ const CAUSAS = [
   {k:'RAM',      nm:'RAM',       c:'ram'},
   {k:'NITRITO',  nm:'Nitrito',   c:'nitrito'},
   {k:'DETENCION',nm:'Detencion', c:'det'},
-  {k:'REGISTRO', nm:'Registro operativo', c:'ope'},
+  {k:'REGISTRO', nm:'Detencion historica', c:'ope'},
   {k:'MATERIAPRIMA', nm:'Materia prima', c:'mp'},
 ];
 const VIEWS = [['consulta','Consulta con packing list'],['bloqueados','Estado de stock'],
@@ -552,7 +552,7 @@ function porque(o){
   let h = t.length ? '<div>'+t.join('')+'</div>' : '';
   if(o.lab) h+='<div><span class="hd">Lab</span> '+esc(o.lab)+'</div>';
   if(o.det) h+='<div><span class="hd">Detencion</span> '+esc(o.det)+'</div>';
-  if(o.ope) h+='<div><span class="hd">Registro operativo</span> '+esc(o.ope)+'</div>';
+  if(o.ope) h+='<div><span class="hd">Detencion historica</span> '+esc(o.ope)+'</div>';
   if(o.mp) h+='<div><span class="hd">Materia prima</span> '+esc(o.mp)+'</div>';
   if(o.mlib) h+='<div class="note"><b>Por que quedo asi:</b> '+esc(o.mlib)+'</div>';
   if(o.firma) h+='<div class="note"><b>Firmada por</b> '+esc(o.firma)+'</div>';
@@ -628,7 +628,7 @@ function detsDe(q){
     return m.length >= MIN && (q.startsWith(m) || m.startsWith(q)) &&
       (d['ESTADO'] === 'ABIERTA' || d['ESTADO'] === 'PNC');});
 }
-// El veredicto por batch es puro laboratorio: no sabe nada del registro operativo
+// El veredicto por batch es puro laboratorio: no sabe nada de las detenciones historicas
 // ni de la materia prima. Un lote bloqueado por esos origenes, con lab conforme,
 // saldria LIBERADO si la consulta mirara solo los batches.
 function opesDe(q){
@@ -666,7 +666,7 @@ function estadoLinea(x){
 function detalle(x){
   const h = [];
   // El laboratorio puede estar conforme para este codigo y el lote seguir
-  // bloqueado: el registro operativo, las detenciones y la materia prima
+  // bloqueado: las detenciones historicas, las detenciones y la materia prima
   // bloquean el LOTE, no un batch ni un dia. Sin decirlo, la tabla de batches
   // -donde este sale LIBERADO- parece contradecir el estado de la fila.
   const labLimpio = x.r && !x.r.hits.some(b => b.estado==='BLOQUEADO' || b.estado==='PNC');
@@ -674,7 +674,7 @@ function detalle(x){
   if(estadoLinea(x)==='BLOQUEADO' && labLimpio)
     h.push('<div class="aviso"><span>&#9888;</span><div><b>El laboratorio de este codigo '+
       'esta conforme, pero el lote sigue bloqueado por un origen declarado.</b> Las '+
-      'detenciones, el registro operativo y la materia prima bloquean el <b>lote '+
+      'detenciones, las detenciones historicas y la materia prima bloquean el <b>lote '+
       'completo</b>: no distinguen batch ni dia de produccion, porque no se declaran a ese '+
       'nivel. Por eso abajo veras este batch como liberado y la fila como bloqueada.</div></div>');
   if(x.r){
@@ -703,7 +703,7 @@ function detalle(x){
         (b.det?' <span class="hd">Detencion</span> '+esc(b.det):'')+
         // El bloqueo declarado sobre ESTA unidad: sin mostrarlo, la fila decia
         // "conforme" al lado de BLOQUEADO y no habia forma de saber por que.
-        (b.ope?' <span class="hd">Registro operativo</span> '+esc(b.ope):'')+
+        (b.ope?' <span class="hd">Detencion historica</span> '+esc(b.ope):'')+
         (b.rem?'<span class="hd">Re-muestreo</span> '+esc(b.rem)+
           '<div class="note">Un re-muestreo conforme no libera solo: requiere decision '+
           'firmada de Calidad.</div>':'')+
@@ -724,7 +724,7 @@ function detalle(x){
     const ref = o.n!==norm(x.usado)?'<span class="mono">'+esc(o.lote)+'</span> ':'';
     // Si se resolvio por unidad, su bloqueo operativo ya se mostro en la linea del
     // batch: repetir aqui el del lote entero hace parecer que tambien la alcanza.
-    if(o.ope && !porUnidad) h.push('<div><span class="tag ope">Registro operativo</span>'+ref+esc(o.ope)+
+    if(o.ope && !porUnidad) h.push('<div><span class="tag ope">Detencion historica</span>'+ref+esc(o.ope)+
       (o.opeb?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>');
     if(o.mp) h.push('<div><span class="tag mp">Materia prima</span>'+ref+esc(o.mp)+
       (o.mpb?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>');
@@ -782,7 +782,7 @@ function correr(){
 }
 function csv(){
   const f = ['LINEA','LOTE DETECTADO','MATCH','ESTADO','CAUSAS','MOTIVO LAB','MOTIVO DETENCION',
-    'MOTIVO REGISTRO OPERATIVO','MUESTRAS','ULTIMA MUESTRA','PRESENTACION'];
+    'MOTIVO DETENCION HISTORICA','MUESTRAS','ULTIMA MUESTRA','PRESENTACION'];
   const q = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const r = [f.map(q).join(';')];
   for(const x of ULT){
@@ -1117,7 +1117,7 @@ function abrirLote(n){
     grp('Por que esta asi', (o.mlib?'<div style="margin-bottom:8px">'+esc(o.mlib)+'</div>':'')+
       (o.lab?'<div class="mot">LAB '+esc(o.lab)+'</div>':'')+
       (o.det?'<div class="mot">DETENCION '+esc(o.det)+'</div>':'')+
-      (o.ope?'<div class="mot">REGISTRO OPERATIVO '+esc(o.ope)+'</div>':'')+
+      (o.ope?'<div class="mot">DETENCION HISTORICA '+esc(o.ope)+'</div>':'')+
       (o.mp?'<div class="mot">MATERIA PRIMA '+esc(o.mp)+'</div>':'')+
       (o.hrem?'<div class="note">Re-muestreo conforme: '+esc(o.hrem)+'</div>':'')+
       critHtml(o.porcrit)+(o.evid?'<div class="pista">Evidencia: '+esc(o.evid)+'</div>':''))+

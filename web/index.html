@@ -119,6 +119,19 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
 .tag.DETENCION{background:var(--t-serious);color:var(--serious)}
 .tag.REGISTRO{background:var(--t-warning);color:var(--warning)}
 .tag.MATERIAPRIMA{background:var(--t-critical);color:var(--critical)}
+
+details.ayuda{margin:0 0 14px;border:1px solid var(--line);border-radius:11px;
+  background:var(--surface-2);overflow:hidden}
+details.ayuda summary{cursor:pointer;padding:10px 14px;font-size:12.5px;font-weight:620;
+  color:var(--ink-2);list-style:none}
+details.ayuda summary::-webkit-details-marker{display:none}
+details.ayuda summary::before{content:"?";display:inline-flex;align-items:center;
+  justify-content:center;width:17px;height:17px;border-radius:50%;background:var(--ink-3);
+  color:var(--surface);font-size:11px;font-weight:700;margin-right:8px;vertical-align:-3px}
+details.ayuda[open] summary{border-bottom:1px solid var(--line)}
+details.ayuda .cuerpo{padding:13px 15px;font-size:13px;line-height:1.6;color:var(--ink-2)}
+details.ayuda .cuerpo b{color:var(--ink)}
+details.ayuda .cuerpo p{margin:0 0 9px} details.ayuda .cuerpo p:last-child{margin:0}
 .why{font-size:12.5px;line-height:1.5}
 .why .hd{font-weight:620;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
 .note{color:var(--ink-2);font-size:12px;margin-top:3px}
@@ -246,6 +259,15 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
         <h2>Consulta con packing list</h2>
         <p class="lead">Cada línea se resuelve <b>contra el laboratorio</b>, al nivel de batch que venga
           en el packing list. No interviene el stock. Haz clic en una fila para ver el detalle.</p>
+        <details class="ayuda"><summary>¿Para qué sirve esta pantalla?</summary><div class="cuerpo"><p><b>Responde si un despacho puede salir.</b> Pegas el packing list —tal cual, copiado del
+Excel o del PDF— y el sistema busca cada código en los resultados del laboratorio.</p>
+<p>Cada línea sale con un estado. <b>BLOQUEADO</b> es no despachar.
+<b>SIN RESULTADO DE LAB</b> no significa que esté bien: significa que nadie lo analizó
+todavía, y eso hay que verificarlo antes de mover el producto.</p>
+<p>La columna <b>Match</b> dice qué tan seguro es el hallazgo. <i>Exacto</i> es el código
+que pegaste. <i>Lote base</i> es que pegaste el lote sin el detalle del día, así que se
+responde por todos sus días juntos. <i>Aproximado</i> es que ese código no está y se
+muestra el más parecido, solo como referencia: no libera nada.</p></div></details>
         <label class="fld" for="pl">Contenido</label>
         <textarea id="pl" placeholder="Pega aquí el packing list..."></textarea>
         <div class="acts">
@@ -267,6 +289,13 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
           Criterios: RAM en toda línea; binomio WPS/nitrito en refrigerada y en bacon/wheel
           (libera con nitrito desde 85 ppm si el WPS supera 3,5%, o con nitrito sobre 100 ppm
           por sí solo); Listeria en refrigerada y en congelada con destino EE.UU. o Costa Rica.</p>
+        <details class="ayuda"><summary>¿Para qué sirve esta pantalla?</summary><div class="cuerpo"><p><b>Cuánto producto hay retenido en bodega y por qué.</b> Aquí manda el lote tal como lo
+registra Fishken, que es como están físicamente las cajas.</p>
+<p>Un lote puede estar bloqueado por más de una razón a la vez, y <b>hay que cerrarlas
+todas</b>: si el laboratorio ya dio conforme pero quedó una detención abierta, el producto
+sigue retenido.</p>
+<p><b>CANDIDATO A LIBERAR</b> es lo que más conviene mirar: ya tiene con qué liberarse y
+solo falta que alguien firme.</p></div></details>
         <div class="aviso"><span>&#9432;</span><div>El stock viene de <b>Fishken</b>, que registra el lote
           hasta el número pero <b>no la letra del batch de ahumado</b>. Por eso un lote arrastra a todos
           sus batches. Para consultar un batch puntual usa <b>Consulta con packing list</b>.</div></div>
@@ -299,6 +328,15 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
           producto que se reconozca. Revisa, corrige lo que haga falta y guarda.
           <b>El sistema propone, tú confirmas</b>: una detención mal leída bloquea o libera
           producto, así que nada se guarda sin que alguien lo mire.</p>
+        <details class="ayuda"><summary>¿Qué es una detención y cómo se registra?</summary><div class="cuerpo"><p>Es un bloqueo que <b>declara una persona</b> ante una desviación —vida útil excedida,
+curado pasado, una caída al piso— y vale <b>aunque el laboratorio no tenga nada</b>. Al
+revés que un análisis: si no hay evidencia, no se libera.</p>
+<p>Para registrar una, pega el correo tal como llegó. El sistema propone una fila por cada
+lote que reconozca y tú corriges lo que haga falta antes de guardar. <b>Nada se guarda
+solo</b>: una detención mal leída bloquea o libera producto.</p>
+<p>Cada una dice <b>con qué se cierra</b>: qué análisis hay que repetir y desde qué fecha.
+Una muestra anterior al evento no sirve como prueba. Un <b>PNC</b> no se libera nunca: se
+dispone.</p></div></details>
         <label class="fld" for="det-txt">Correo de detención</label>
         <textarea id="det-txt" placeholder="Estimados:&#10;&#10;Junto con saludar, informo que el siguiente producto..."></textarea>
         <div class="acts">
@@ -334,6 +372,13 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
           pero no lo fisicoquímico — un nitrito bajo sigue bajo después del APH, y esos lotes
           quedan bloqueados igual. Se firma la ruta completa de una vez, y cada lote queda con
           su propia firma a tu nombre.</p>
+        <details class="ayuda"><summary>¿Cuándo usar esta pantalla?</summary><div class="cuerpo"><p>Cuando un despacho completo pasó por <b>altas presiones hidrostáticas</b>. Es un
+tratamiento que elimina Listeria, así que sirve para liberar en bloque lo que viajó junto.</p>
+<p>Pegas el packing list de ese despacho y, <b>antes de firmar</b>, ves lote por lote qué va
+a pasar. Ojo con esto: el APH resuelve lo microbiológico, pero <b>no cambia la química</b>.
+Un lote con nitrito bajo sigue bajo después del tratamiento, y esos quedan bloqueados
+igual.</p>
+<p>Cada lote queda con su firma a tu nombre, agrupados por la ruta que le pongas.</p></div></details>
         <div class="toolbar">
           <div><label class="fld" for="aph-ruta">Ruta o despacho</label>
             <input id="aph-ruta" placeholder="Ej: APH-2026-08-10 o el número de despacho"></div>
@@ -359,13 +404,20 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
           producción con su propio veredicto. Es la lista de lo que hoy no puede salir y por qué.
           Un lote de bodega puede aparecer con unos días bloqueados y otros no; las cajas igual
           no se pueden separar, porque Fishken no registra el sufijo.</p>
+        <details class="ayuda"><summary>¿En qué se diferencia de «Estado de stock»?</summary><div class="cuerpo"><p>Esta pantalla mira el <b>código completo</b>, con el día de producción incluido. La otra
+mira el lote como está en bodega.</p>
+<p>Importa porque un mismo lote puede tener un día con problema y otros dos correctos.
+Aquí ves cuál falló exactamente; en bodega, en cambio, <b>las cajas no se pueden
+separar</b>, porque el sistema de bodega no registra el día.</p>
+<p>Por eso los totales cuentan lotes de bodega y no unidades: las cajas son del lote
+completo, y sumarlas por día las contaría varias veces.</p></div></details>
         <div class="toolbar">
           <div><label class="fld" for="fb">Buscar</label>
             <input type="text" id="fb" placeholder="Lote, motivo…" oninput="pintaBloqueados()"></div>
           <div><label class="fld" for="fbo">Origen</label>
             <select id="fbo" onchange="pintaBloqueados()"><option value="">Todos</option>
               <option value="lab">Laboratorio</option><option value="det">Detención</option>
-              <option value="ope">Registro operativo</option></select></div>
+              <option value="ope">Detención histórica</option></select></div>
           <div class="acts" style="margin:0"><button class="btn ghost" onclick="copiar(csvBloqueados())">Copiar</button></div>
         </div>
         <div id="k-bloq" style="margin-top:14px"></div>
@@ -381,6 +433,12 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
           historia: qué se destrabó, cuándo y con qué. Lo marcado como <b>cambio de norma</b>
           no se liberó por un resultado nuevo sino porque cambió un criterio — y esa distinción
           es justamente para lo que existe este registro.</p>
+        <details class="ayuda"><summary>¿Qué estoy viendo aquí?</summary><div class="cuerpo"><p><b>La historia de todo lo que dejó de estar bloqueado</b>, y con qué. El cálculo se
+rehace entero cada vez que corre el sistema, así que sin este registro no habría forma de
+saber que algo estuvo retenido y después salió.</p>
+<p>Lo marcado como <b>cambio de norma</b> es distinto del resto: eso no se liberó porque
+llegara un resultado nuevo, sino porque se cambió un criterio. Ajustar un límite y liberar
+sesenta lotes se ve igual que recibir sesenta análisis conformes, y no es lo mismo.</p></div></details>
         <div class="toolbar">
           <div><label class="fld" for="fl2">Buscar</label>
             <input type="text" id="fl2" placeholder="Lote…" oninput="pintaLiberados()"></div>
@@ -402,6 +460,11 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
         <h2>Buscar</h2>
         <p class="lead">Búsqueda libre sobre cualquier atributo: código con o sin prefijo @ o B,
           producto, cliente o bodega. Incluye todos los estados.</p>
+        <details class="ayuda"><summary>¿Qué puedo buscar aquí?</summary><div class="cuerpo"><p>Cualquier cosa: un código completo o parcial, un cliente, un producto, una bodega.
+Sirve cuando tienes un dato suelto y no sabes a qué lote corresponde.</p>
+<p>Si buscas un código sin el prefijo <b>@</b> o <b>B</b>, igual lo encuentra — pero ojo:
+esos prefijos <b>son parte del código</b> y distinguen lotes distintos. <b>@</b> es ASC y
+<b>B</b> es BAP.</p></div></details>
         <label class="fld" for="f3">Término</label>
         <input type="text" id="f3" placeholder="Lote, producto, cliente o bodega..." oninput="pintaBusca()">
       </div>
@@ -423,7 +486,7 @@ const MIN = 8;
 const CAUSAS = [
   {k:'LISTERIA', nm:'Listeria', c:'listeria'}, {k:'RAM', nm:'RAM', c:'ram'},
   {k:'NITRITO', nm:'Nitrito', c:'nitrito'}, {k:'DETENCION', nm:'Detención', c:'det'},
-  {k:'REGISTRO', nm:'Registro operativo', c:'ope'},
+  {k:'REGISTRO', nm:'Detención histórica', c:'ope'},
   {k:'MATERIAPRIMA', nm:'Materia prima', c:'mp'}];
 const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
              'LIBERADO POR DECISION':4,'LIBERADO':5};
@@ -641,7 +704,7 @@ window.verBatch = n => {
       (!b.motivo_lab&&!b.remuestreo?'<div class="mut">Sin incumplimientos vigentes.</div>':''))+
     ((b.motivo_detencion||b.motivo_operativo) ? grp('Bloqueo declarado',
       (b.motivo_detencion?`<div class="mot">DETENCIÓN ${esc(b.motivo_detencion)}</div>`:'')+
-      (b.motivo_operativo?`<div class="mot">REGISTRO OPERATIVO ${esc(b.motivo_operativo)}</div>`:'')) : '')+
+      (b.motivo_operativo?`<div class="mot">DETENCION HISTORICA ${esc(b.motivo_operativo)}</div>`:'')) : '')+
     grp('Muestra', kv([['Presentación', esc(b.presentacion||'')], ['Tipo', esc(b.tipo||'')],
       ['Observación', esc(b.observacion_lab||'')], ['Listeria', esc(b.listeria||'')],
       ['RAM', b.ram_max!=null?nf(b.ram_max):''], ['Nitrito', b.nitrito!=null?b.nitrito.toFixed(1):''],
@@ -990,7 +1053,7 @@ const tiles = a => '<div class="tiles">'+a.map(([k,v])=>
 const emparenta = (a,b) => a && b && a.length>=MIN && b.length>=MIN && (a.startsWith(b)||b.startsWith(a));
 const causasDe = o => (o.causas||[]).concat(o.motivo_detencion?['DETENCION']:[])
   .concat(o.motivo_operativo?['REGISTRO']:[]).concat(o.motivo_mp?['MATERIAPRIMA']:[]);
-// El laboratorio no sabe nada del registro operativo: sin esto un lote bloqueado por
+// El laboratorio no sabe nada dla detención histórica: sin esto un lote bloqueado por
 // correo con laboratorio conforme saldria LIBERADO en la consulta de packing list.
 const opesDe = q => q && q.length>=MIN
   ? L.filter(o=>(o.motivo_operativo||o.motivo_mp) && emparenta(o.normalizado, q)) : [];
@@ -1001,7 +1064,7 @@ function porque(o){
   if(t) h += `<div>${t}</div>`;
   if(o.motivo_lab) h += `<div><span class="hd">Lab</span> ${esc(o.motivo_lab)}</div>`;
   if(o.motivo_detencion) h += `<div><span class="hd">Detención</span> ${esc(o.motivo_detencion)}</div>`;
-  if(o.motivo_operativo) h += `<div><span class="hd">Registro operativo</span> ${esc(o.motivo_operativo)}`+
+  if(o.motivo_operativo) h += `<div><span class="hd">Detención histórica</span> ${esc(o.motivo_operativo)}`+
     (o.operativo_bloquea?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>';
   if(o.motivo_mp) h += `<div><span class="hd">Materia prima</span> ${esc(o.motivo_mp)}`+
     (o.mp_bloquea?'':' <span class="mut">(ya no bloquea)</span>')+'</div>';
@@ -1059,20 +1122,20 @@ function detalleLinea(x){
   if(!x.cand) return '<span class="mut">No hay ningún código con forma de lote. Probablemente es una '+
     'cabecera, un subtotal o un separador.</span>';
   // El laboratorio puede estar conforme para este codigo y el lote seguir
-  // bloqueado: el registro operativo, las detenciones y la materia prima
+  // bloqueado: la detención histórica, las detenciones y la materia prima
   // bloquean el LOTE, no un batch ni un dia. Sin decirlo, la tabla de batches
   // -donde este sale LIBERADO- parece contradecir el estado de la fila.
   const labLimpio = x.r && !x.r.hits.some(b => b.estado==='BLOQUEADO' || b.estado==='PNC');
   const choca = estadoLinea(x)==='BLOQUEADO' && labLimpio ?
     '<div class="aviso"><span>&#9888;</span><div><b>El laboratorio de este código está '+
     'conforme, pero el lote sigue bloqueado por un origen declarado.</b> Las detenciones, '+
-    'el registro operativo y la materia prima bloquean el <b>lote completo</b>: no '+
+    'la detención histórica y la materia prima bloquean el <b>lote completo</b>: no '+
     'distinguen batch ni día de producción, porque no se declaran a ese nivel. Por eso '+
     'abajo verás este batch como liberado y la fila como bloqueada.</div></div>' : '';
   // Si se resolvio por unidad, su bloqueo operativo ya se muestra en la linea del
   // batch: repetir aqui el del lote entero hace parecer que tambien la alcanza.
   const porUni = x.r && x.r.nivel === 'EXACTO' && normU(x.cand).includes('*');
-  const op = choca + (porUni ? [] : (x.ops||[])).map(o=>`<div><span class="tag REGISTRO">Registro operativo</span>`+
+  const op = choca + (porUni ? [] : (x.ops||[])).map(o=>`<div><span class="tag REGISTRO">Detención histórica</span>`+
     (o.normalizado!==norm(x.cand)?`<span class="mono">${esc(o.lote)}</span> `:'')+esc(o.motivo_operativo)+
     (o.operativo_bloquea?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>').join('');
   if(!x.r) return '<div class="why">'+op+'<div><b>El laboratorio aún no tiene resultado para este lote.</b></div>'+
@@ -1093,7 +1156,7 @@ function detalleLinea(x){
       (b.motivo_detencion?` <span class="hd">Detención</span> ${esc(b.motivo_detencion)}`:'')+
       // El bloqueo declarado sobre ESTA unidad: sin mostrarlo, la fila decia
       // "conforme" al lado de BLOQUEADO y no habia forma de saber por que.
-      (b.motivo_operativo?` <span class="hd">Registro operativo</span> ${esc(b.motivo_operativo)}`:'')+
+      (b.motivo_operativo?` <span class="hd">Detención histórica</span> ${esc(b.motivo_operativo)}`:'')+
       (b.remuestreo?`<span class="hd">Re-muestreo</span> ${esc(b.remuestreo)}<div class="note">`+
         'No libera solo: requiere decisión firmada de Calidad.</div>':'')+
       (!b.motivo_lab && !b.motivo_detencion && !b.motivo_operativo && !b.remuestreo
@@ -1188,7 +1251,7 @@ function tabla(d){
 function filasExportables(vista){
   if(vista === 'pl'){
     const cab = ['LINEA','LOTE DETECTADO','MATCH','ESTADO','CAUSAS','MOTIVO LAB',
-                 'MOTIVO DETENCION','MOTIVO REGISTRO OPERATIVO','RE-MUESTREO','MUESTRAS',
+                 'MOTIVO DETENCION','MOTIVO DETENCION HISTORICA','RE-MUESTREO','MUESTRAS',
                  'ULTIMA MUESTRA','PRESENTACION'];
     const filas = [];
     for(const x of ULT){
@@ -1202,7 +1265,7 @@ function filasExportables(vista){
     return {cab, filas, nombre:'packing_list_vs_lab'};
   }
   const cab = ['LOTE','ESTADO','CAUSAS','MOTIVO LAB','MOTIVO DETENCION',
-               'MOTIVO REGISTRO OPERATIVO','MOTIVO LIBERACION',
+               'MOTIVO DETENCION HISTORICA','MOTIVO LIBERACION',
                'LINEA','DESTINO','EN BODEGA','BODEGAS','PRODUCTOS','CLIENTES','CAJAS','KG'];
   return {cab, nombre:'estado_de_stock', filas: ULT_STOCK.map(o=>[
     o.lote, o.estado, causasDe(o).join('+'), o.motivo_lab, o.motivo_detencion,
