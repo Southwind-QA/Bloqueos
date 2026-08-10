@@ -1643,6 +1643,30 @@ else:
     if len(cambios) > 12:
         print(f"   ... y {len(cambios) - 12} mas")
 
+    # Un lote bloqueado que sale del stock es la unica transicion que el sistema
+    # NO puede explicar solo: pudo despacharse, moverse a una bodega que no
+    # bajamos -PNC entre ellas- o reprocesarse. Mezclado entre los demas cambios
+    # pasa inadvertido, y es justo el que hay que ir a mirar.
+    # Se descartan los que siguen representados por un pariente vivo: cuando un
+    # lote sale de bodega deja de entrar con el codigo de Fishken -que no lleva
+    # la letra del batch- y pasa a entrar con el del laboratorio, que si la
+    # lleva. Es el mismo producto visto con otro codigo, no un lote que se fue.
+    _vivos_lote = [k.split("|", 1)[1] for k in vivos if k.startswith("lote|")]
+    _fue = [c for c in cambios
+            if c[4] == "(ya no aparece)" and c[1] == "lote"
+            and c[3] in ("BLOQUEADO", "PNC", "CANDIDATO A LIBERAR")
+            and not any(emparenta(c[2], v) for v in _vivos_lote)]
+    if _fue:
+        print(f"\n   ATENCION: {len(_fue)} lote(s) que NO estaban liberados ya no aparecen "
+              "en el stock.")
+        print("   Puede ser despacho, traslado a una bodega que no se baja (PNC, VILA, "
+              "VIMU) o reproceso.")
+        print("   El sistema no puede distinguirlos: hay que verificar donde quedaron.")
+        for c in _fue[:10]:
+            print(f"      {c[2]:16s} estaba {c[3]}")
+        if len(_fue) > 10:
+            print(f"      ... y {len(_fue) - 10} mas, en la hoja CAMBIOS")
+
 camlog = camlog.iloc[::-1]          # lo mas reciente primero
 
 # ----------------------------------------------------------------- detalles
