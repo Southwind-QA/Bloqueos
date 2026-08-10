@@ -29,9 +29,12 @@ shift
 goto :args
 :finargs
 
+rem Una linea vacia en .env NO borra lo que ya esta en el entorno: si alguien deja
+rem FISHKEN_USER= sin completar porque ya lo tiene como variable de Windows, el
+rem .env no debe pisarselo con nada.
 if exist ".env" (
   for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
-    if not "%%~A"=="" set "%%~A=%%~B"
+    if not "%%~A"=="" if not "%%~B"=="" set "%%~A=%%~B"
   )
 )
 
