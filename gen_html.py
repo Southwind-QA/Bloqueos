@@ -435,6 +435,23 @@ tbody tr.clic:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 
 <section id="v-detenciones" hidden>
   <div class="card">
+    <h2>Registrar una detencion desde el correo</h2>
+    <p class="lead">Pega el correo <b>tal como llego</b>. Se propone una fila por cada lote y
+      producto que se reconozca, con el vocabulario que ya usa el registro. Revisa, corrige lo
+      que haga falta y copia: las filas se pegan directo en REGISTRO DETENCIONES.xlsx.
+      <b>El sistema propone, tu confirmas</b>: nada se guarda solo, porque una detencion mal
+      leida bloquea o libera producto.</p>
+    <label class="fld" for="det-txt">Correo de detencion</label>
+    <textarea id="det-txt" placeholder="Estimados:&#10;&#10;Junto con saludar, informo que el siguiente producto..."></textarea>
+    <div class="acts">
+      <button class="btn" onclick="leerCorreo()">Analizar el correo</button>
+      <button class="btn ghost" onclick="limpiarCorreo()">Limpiar</button>
+      <button class="btn ghost" id="det-copiar" hidden onclick="copiarDet()">Copiar filas para el Excel</button>
+      <span id="det-aviso" class="mut"></span>
+    </div>
+    <div id="det-prop"></div>
+  </div>
+  <div class="card">
     <h2>Detenciones declaradas por correo</h2>
     <p class="lead">Detenciones declaradas <b>por correo</b> ante una desviacion de proceso
       (vida util excedida, curado excedido, contaminacion fisica). Son un bloqueo <b>declarado</b>,
@@ -837,6 +854,154 @@ document.getElementById('fd1').innerHTML='<option value="">Todos</option>'+
   uniq('ESTADO').map(v=>'<option>'+esc(v)+'</option>').join('');
 document.getElementById('fd2').innerHTML='<option value="">Todos</option>'+
   uniq('TIPO DE DESVIACION').map(v=>'<option>'+esc(v)+'</option>').join('');
+// ---------------------------------------------------------------- correo -> detencion
+// Los correos los escribe una persona y los lee otra: el parser propone, nunca
+// guarda. Lo unico que hace es ahorrar la transcripcion, que es donde se cuelan
+// los errores de tipeo en el lote.
+const sinTilde = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g,'');
+const TIPOS_DET = [
+  [/vida\s*util|dias?\s+de\s+vida/i,               'Vida util excedida'],
+  [/curado/i,                                      'Curado excedido'],
+  [/enfriamiento|temperatura|termocupla/i,         'Tiempo de enfriamiento excedido'],
+  [/caida|piso|cuerpo\s*extra|contaminacion\s*fis/i,'Contaminacion fisica'],
+  [/listeria|\bl\.?\s?m\.?\b/i,                    'Presencia de listeria'],
+  [/\bram\b|recuento/i,                            'RAM elevado'],
+  [/nitrito/i,                                     'Nitrito fuera de rango'],
+  [/documenta|trazabilidad/i,                      'Falta de documentacion'],
+];
+const COLS_DET = ['ID','FECHA CORREO','EMITIDO POR','ASUNTO / REFERENCIA','TIPO DE DESVIACION',
+  'DESCRIPCION','LOTE','PRODUCTO','ALCANCE','CANTIDAD AFECTADA (KG)','FECHA DEL EVENTO',
+  'RESOLUCION','CRITERIOS DE LIBERACION','ESTADO'];
+let PROP_DET = [];
+
+function fechaISO(t){
+  const m = t.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(!m) return '';
+  let a = m[3].length === 2 ? '20'+m[3] : m[3];
+  return a+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+}
+function siguienteID(){
+  const n = D.det.map(x => {const m = String(x['ID']).match(/DET-(\d{4})-(\d+)/);
+    return m ? parseInt(m[2],10) : 0;}).reduce((a,b) => Math.max(a,b), 0);
+  const anio = (D.det.map(x => String(x['ID']).match(/DET-(\d{4})/)).filter(Boolean).pop()||[])[1]
+    || String(new Date().getFullYear());
+  return (k) => 'DET-'+anio+'-'+String(n+1+k).padStart(3,'0');
+}
+
+function leerCorreo(){
+  const txt = document.getElementById('det-txt').value;
+  const plano = sinTilde(txt);
+  const av = document.getElementById('det-aviso');
+  if(!txt.trim()){document.getElementById('det-prop').innerHTML='';
+    document.getElementById('det-copiar').hidden=true; av.textContent=''; return;}
+
+  const esPNC = /\bPNC\b|producto\s+no\s+conforme/i.test(plano);
+  const tipo = (TIPOS_DET.find(([rx]) => rx.test(plano)) || [null,''])[1];
+  const kg = plano.match(/([\d.]+,\d+|\d+\.\d+|\d+)\s*(?:kg|kilos)\b/i);
+  // La fecha del correo es la primera que aparece suelta; la del evento, la que
+  // acompania al lote. Si solo hay una, sirve para las dos y la persona corrige.
+  const fechas = plano.match(/\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/g) || [];
+  const fcorreo = fechas.length ? fechaISO(fechas[0]) : '';
+
+  // Una fila por linea que traiga lote: el correo del 04/08 repite el mismo lote
+  // en tres productos distintos y en el registro son tres filas.
+  const filas = [];
+  for(const linea of txt.split(/\r?\n/)){
+    const toks = linea.split(/[\s,;()]+/).filter(esLote);
+    if(!toks.length) continue;
+    const lp = sinTilde(linea);
+    const fev = fechaISO(lp) || fcorreo;
+    // El producto es lo que va antes del lote, sin la formula de cortesia ni la
+    // numeracion de la lista. Cuando el lote viene en medio de un parrafo no hay
+    // forma de acertar siempre: por eso la celda es editable.
+    let prod = linea.replace(/^\s*\d+[.)]\s*/,'')
+      .replace(/^.*?(?:informo que|informo|se detienen|se detiene)\s*/i,'')
+      .replace(/^\s*[\d.,]+\s*(?:kg|kilos)\s+de\s+/i,'')
+      .replace(/^(?:el|la|los|las)\s+/i,'')
+      .split(/\blotes?\b\s*:?/i)[0]
+      .trim().replace(/[.,;:\-–—]+$/,'')
+      .replace(/\s+(?:con|de|del|para)\s+(?:el|la|los|las)?\s*$/i,'').trim();
+    if(prod.length > 70 || prod.length < 3) prod = '';
+    for(const t of new Set(toks.map(x => x.replace(/[.;,]+$/,'')))){
+      filas.push({
+        'LOTE': t, 'PRODUCTO': prod,
+        'TIPO DE DESVIACION': tipo,
+        'FECHA DEL EVENTO': fev,
+        'ALCANCE': kg ? 'PARCIAL (KG)' : 'LOTE+PRODUCTO',
+        'CANTIDAD AFECTADA (KG)': kg ? kg[1].replace(/\.(?=\d{3}\b)/g,'').replace(',','.') : '',
+        'ESTADO': esPNC ? 'PNC' : 'ABIERTA',
+        'RESOLUCION': esPNC ? 'PNC - no se libera contra laboratorio'
+                            : 'Detencion hasta liberacion de laboratorio',
+        'CRITERIOS DE LIBERACION': esPNC ? 'NO APLICA' : 'LISTERIA; RAM',
+        'FECHA CORREO': fcorreo,
+        'EMITIDO POR': 'Macarena Lira (Supervisor de Calidad)',
+        'ASUNTO / REFERENCIA': 'Detencion',
+        'DESCRIPCION': linea.trim().slice(0,180),
+      });
+    }
+  }
+  const sig = siguienteID();
+  filas.forEach((f,i) => f['ID'] = sig(i));
+  PROP_DET = filas;
+
+  if(!filas.length){
+    document.getElementById('det-prop').innerHTML =
+      '<div class="card empty">No se reconocio ningun codigo con forma de lote. '+
+      'Revisa que el correo traiga el lote completo; si viene partido en dos lineas, '+
+      'juntalo antes de pegar.</div>';
+    document.getElementById('det-copiar').hidden = true; av.textContent=''; return;
+  }
+
+  const ya = filas.filter(f => D.det.some(d => norm(d['LOTE']) === norm(f['LOTE'])
+    && String(d['FECHA CORREO']).slice(0,10) === f['FECHA CORREO']));
+  av.textContent = ya.length ? ya.length+' de estas filas ya estan en el registro' : '';
+  // La fecha del correo va en el encabezado, que no se pega: se toma la primera del
+  // cuerpo, que muchas veces es la del evento. Vale avisarlo en vez de dar por buena
+  // una fecha que despues decide que muestras cuentan como posteriores.
+  const dudosa = fcorreo && filas.some(f => f['FECHA DEL EVENTO'] === fcorreo);
+
+  const campos = ['FECHA CORREO','LOTE','PRODUCTO','TIPO DE DESVIACION','FECHA DEL EVENTO',
+                  'ALCANCE','CANTIDAD AFECTADA (KG)','CRITERIOS DE LIBERACION','ESTADO'];
+  document.getElementById('det-prop').innerHTML =
+    (fcorreo ? '' : '<div class="aviso" style="margin:12px 0"><span>&#9888;</span><div>'+
+      '<b>No se detecto la fecha del correo.</b> Va en el encabezado, que no se copia al '+
+      'pegar el cuerpo. Escribela a mano en la columna FECHA CORREO: el motor la usa para '+
+      'saber que muestras son posteriores al evento, y sin ella la detencion no se puede '+
+      'cerrar nunca.</div></div>')+
+    (dudosa ? '<div class="note" style="margin:12px 0 0"><b>Revisa la fecha del correo:</b> '+
+      'salio igual a la del evento, asi que puede ser la del proceso y no la del envio. '+
+      'Es la que decide que muestras de laboratorio cuentan como posteriores.</div>' : '')+
+    '<div class="note" style="margin:12px 0 8px">'+filas.length+
+    ' fila(s) propuesta(s). Todo es editable.</div>'+
+    '<div class="tw"><table><thead><tr><th>ID</th>'+campos.map(c=>'<th>'+c+'</th>').join('')+
+    '</tr></thead><tbody>'+filas.map((f,i)=>'<tr><td class="mono">'+esc(f['ID'])+'</td>'+
+    campos.map(c=>'<td><input data-i="'+i+'" data-c="'+c+'" value="'+esc(f[c])+
+    '" oninput="PROP_DET[this.dataset.i][this.dataset.c]=this.value" '+
+    'style="min-width:'+(c==='PRODUCTO'?200:c==='LOTE'?130:110)+'px"></td>').join('')+
+    '</tr>').join('')+'</tbody></table></div>'+
+    (ya.length?'<div class="note"><b>Ojo:</b> '+ya.length+' fila(s) coinciden con una detencion '+
+     'ya registrada (mismo lote y misma fecha de correo). Revisa antes de pegar, para no '+
+     'duplicar.</div>':'');
+  document.getElementById('det-copiar').hidden = false;
+}
+function limpiarCorreo(){
+  document.getElementById('det-txt').value='';
+  document.getElementById('det-prop').innerHTML='';
+  document.getElementById('det-aviso').textContent='';
+  document.getElementById('det-copiar').hidden=true;
+}
+function copiarDet(){
+  const t = PROP_DET.map(f => COLS_DET.map(c => String(f[c]==null?'':f[c])
+    .replace(/[\t\r\n]+/g,' ')).join('\t')).join('\r\n');
+  navigator.clipboard.writeText(t).then(() => {
+    document.getElementById('det-aviso').textContent =
+      PROP_DET.length+' fila(s) copiadas. Pegalas al final de la hoja DETENCIONES.';
+  }, () => {
+    document.getElementById('det-aviso').textContent =
+      'El navegador no dejo copiar. Abre el archivo desde el disco, no desde el correo.';
+  });
+}
+
 function pintaDet(){
   const f=document.getElementById('f4').value.toLowerCase().trim();
   const e=document.getElementById('fd1').value, t=document.getElementById('fd2').value;
