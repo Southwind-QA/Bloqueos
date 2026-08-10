@@ -211,6 +211,23 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
   </div>
 </div>
 
+<div id="clave" class="login" hidden>
+  <div class="card">
+    <h2>Define tu contraseña</h2>
+    <p class="lead">Entraste con el enlace de invitación. Elige una contraseña para poder
+      volver a entrar por tu cuenta: nadie más la conoce, y con ella se firma a tu nombre.</p>
+    <form id="fClave">
+      <label class="fld" for="pass1">Contraseña nueva</label>
+      <input id="pass1" type="password" autocomplete="new-password" minlength="8" required>
+      <div style="height:12px"></div>
+      <label class="fld" for="pass2">Repítela</label>
+      <input id="pass2" type="password" autocomplete="new-password" minlength="8" required>
+      <div class="acts"><button class="btn" type="submit" id="btnClave">Guardar y entrar</button></div>
+      <div class="err" id="errClave"></div>
+    </form>
+  </div>
+</div>
+
 <div id="app" hidden>
   <div class="bd" id="bd" onclick="cerrar()"></div>
   <aside class="dw" id="dw" role="dialog" aria-modal="true"><div class="dh" id="dh"></div><div class="db" id="db"></div></aside>
@@ -387,9 +404,20 @@ window.tema = () => {const r=document.documentElement;
   r.dataset.theme = d==='dark'?'light':'dark';};
 
 // ---------------------------------------------------------------- sesion
+// El enlace de invitacion trae el token en el hash y supabase-js lo consume y lo
+// limpia al detectarlo, asi que hay que leer el tipo ahora, antes de cualquier
+// await. Sin esto la persona entra con sesion pero sin contrasena, y a la
+// siguiente visita no puede volver: la firma tiene que ser suya y solo suya.
+const TIPO_ENLACE = new URLSearchParams(location.hash.slice(1)).get('type');
+
 async function arranque(){
   const {data:{session}} = await sb.auth.getSession();
   if(!session) return mostrarLogin();
+  if(TIPO_ENLACE === 'invite' || TIPO_ENLACE === 'recovery'){
+    mostrarUI();
+    $('login').hidden = true; $('app').hidden = true; $('clave').hidden = false;
+    return;
+  }
   const {data:u, error} = await sb.from('usuario').select('*').eq('id', session.user.id).maybeSingle();
   if(error || !u){
     await sb.auth.signOut();
@@ -416,6 +444,21 @@ $('fLogin').addEventListener('submit', async e => {
   $('errLogin').textContent = ''; location.reload();
 });
 $('btnSalir').addEventListener('click', async () => {await sb.auth.signOut(); location.reload();});
+
+$('fClave').addEventListener('submit', async e => {
+  e.preventDefault();
+  const p1 = $('pass1').value, p2 = $('pass2').value;
+  $('errClave').textContent = '';
+  if(p1 !== p2) return $('errClave').textContent = 'Las dos contraseñas no coinciden.';
+  if(p1.length < 8) return $('errClave').textContent = 'Usa al menos 8 caracteres.';
+  $('btnClave').disabled = true;
+  const {error} = await sb.auth.updateUser({password: p1});
+  $('btnClave').disabled = false;
+  if(error) return $('errClave').textContent = 'No se pudo guardar: ' + error.message;
+  // Se limpia el hash para que un F5 no vuelva a caer en esta pantalla.
+  history.replaceState(null, '', location.pathname + location.search);
+  location.reload();
+});
 
 async function entrar(){
   mostrarUI();
