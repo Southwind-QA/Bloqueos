@@ -382,8 +382,57 @@ print("  linea de proceso en muestras con nitrito: "
       + ", ".join(f"{k}={v}" for k, v in _c.items()))
 
 # ----------------------------------------------------------------- DETENCIONES
-det = pd.read_excel(F_DET, sheet_name="DETENCIONES", header=4).dropna(how="all")
-det = det[det["ID"].notna()].copy()
+# La fuente es Postgres: las detenciones se registran en el sitio, a nombre de
+# quien las carga. El xlsx quedo como historico y solo se usa si no hay conexion,
+# porque una detencion que no se lee es producto que sale sin estar liberado.
+COLS_DET = ["ID", "FECHA CORREO", "EMITIDO POR", "ASUNTO / REFERENCIA",
+            "TIPO DE DESVIACION", "DESCRIPCION", "LOTE", "PRODUCTO", "ALCANCE",
+            "CANTIDAD AFECTADA (KG)", "FECHA DEL EVENTO", "RESOLUCION",
+            "CRITERIOS DE LIBERACION", "ESTADO"]
+
+
+def detenciones_de_postgres():
+    """Detenciones desde la base. None si no se puede, para caer al xlsx."""
+    url = os.environ.get("BLOQUEOS_DB_URL")
+    if not url:
+        return None
+    try:
+        import psycopg
+    except ImportError:
+        print("  (sin driver psycopg: las detenciones salen del xlsx historico)")
+        return None
+    try:
+        # cursor directo y no pd.read_sql: con psycopg3 pandas avisa que solo
+        # soporta SQLAlchemy y ensucia la salida sin que haya nada que arreglar
+        with psycopg.connect(url, connect_timeout=15) as cx:
+            with cx.cursor() as cur:
+                cur.execute("select * from bloqueos.detencion order by id")
+                cols = [c.name for c in cur.description]
+                d = pd.DataFrame(cur.fetchall(), columns=cols)
+    except Exception as e:                                          # noqa: BLE001
+        print("  (no se pudo leer detencion en Postgres):", str(e).splitlines()[0][:90])
+        return None
+    if not len(d):
+        print("  (la tabla detencion esta vacia: se usa el xlsx historico)")
+        return None
+    return pd.DataFrame({
+        "ID": d["id"], "FECHA CORREO": d["fecha_correo"], "EMITIDO POR": d["emitido_por"],
+        "ASUNTO / REFERENCIA": d["referencia"], "TIPO DE DESVIACION": d["tipo"],
+        "DESCRIPCION": d["descripcion"], "LOTE": d["lote"], "PRODUCTO": d["producto"],
+        "ALCANCE": d["alcance"], "CANTIDAD AFECTADA (KG)": d["cantidad_kg"],
+        "FECHA DEL EVENTO": d["fecha_evento"], "RESOLUCION": d["resolucion"],
+        "CRITERIOS DE LIBERACION": d["criterios"].map(
+            lambda v: "; ".join(v) if isinstance(v, (list, tuple)) else str(v or "")),
+        "ESTADO": d["estado"]})
+
+
+det = detenciones_de_postgres()
+FUENTE_DET = "Postgres (bloqueos.detencion)"
+if det is None:
+    FUENTE_DET = os.path.basename(F_DET) + " (historico)"
+    det = pd.read_excel(F_DET, sheet_name="DETENCIONES", header=4).dropna(how="all")
+    det = det[det["ID"].notna()].copy()
+print(f"  detenciones: {len(det)} desde {FUENTE_DET}")
 det["_L"] = det["LOTE"].map(norm)
 det["_EVENTO"] = pd.to_datetime(det["FECHA DEL EVENTO"], errors="coerce")
 det["_ESTADO"] = det["ESTADO"].astype(str).str.strip().str.upper()
@@ -1547,9 +1596,10 @@ for h, g in lab.groupby("FUENTE LAB"):
                     "DESDE": g["_FECHA"].min(), "HASTA": g["_FECHA"].max(),
                     "ARCHIVO GUARDADO": g["_GUARDADO"].max()})
 fd = pd.to_datetime(det["FECHA CORREO"], errors="coerce")
-fuentes.append({"FUENTE": "Detenciones", "ARCHIVO": os.path.basename(F_DET), "REGISTROS": len(det),
+fuentes.append({"FUENTE": "Detenciones", "ARCHIVO": FUENTE_DET, "REGISTROS": len(det),
                 "DESDE": fd.min(), "HASTA": fd.max(),
-                "ARCHIVO GUARDADO": _guardado(os.path.basename(F_DET))})
+                "ARCHIVO GUARDADO": (pd.Timestamp.now() if "Postgres" in FUENTE_DET
+                                     else _guardado(os.path.basename(F_DET)))})
 for _n46 in _f46:
     fuentes.append({"FUENTE": "Materia prima (PRO-REG-46)", "ARCHIVO": _n46,
                     "REGISTROS": len(mp),

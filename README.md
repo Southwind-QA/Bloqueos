@@ -146,7 +146,8 @@ Tres reglas transversales:
 |---|---|
 | `FRIGORÍFICO SOUTH WIND - *.xlsx` | Stock por caja: cliente, condición, OF, producto. Los baja `descargar_fishken.py` |
 | `LAB-REG-08*.xlsx` | Resultados de laboratorio. Uno por año, con estructura levemente distinta entre años |
-| `REGISTRO DETENCIONES.xlsx` | Detenciones por correo. **Se lee, nunca se sobrescribe** |
+| `bloqueos.detencion` | Detenciones por correo. Se registran **en el sitio**; el motor solo las lee, y su rol ni siquiera tiene permiso para escribirlas |
+| `REGISTRO DETENCIONES.xlsx` | Las mismas hasta el 10/08/2026. Histórico: solo se usa si no hay conexión a la base |
 | `Bloqueo 2026.xlsm` | Registro operativo: bloqueos declarados con su motivo, y liberaciones con su mercado |
 | `*PRO-REG-46*.xlsx` | Ingreso de materia prima por proveedor. Enlaza el lote del proveedor con el lote SW: lo único que permite heredar el bloqueo de la MP |
 

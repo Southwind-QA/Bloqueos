@@ -135,7 +135,8 @@ Todas se descubrieron rompiendo algo. No las deshagas.
 |---|---|---|
 | Fishken | Stock por caja: cliente, condición, OF, producto | `descargar_fishken.py`, automático |
 | LAB-REG-08 | Resultados de laboratorio, uno por año | `sincronizar_lab.py`, automático |
-| `REGISTRO DETENCIONES.xlsx` | Detenciones por correo | Manual, y así debe ser |
+| `bloqueos.detencion` (Postgres) | Detenciones por correo | Se registran en el sitio, a nombre de quien las carga |
+| `REGISTRO DETENCIONES.xlsx` | Las mismas, hasta el 10/08/2026 | **Histórico.** Solo se lee si no hay conexión |
 | `REGISTRO DECISIONES.xlsx` | Liberaciones firmadas | Manual, y así debe ser |
 | `Bloqueo 2026.xlsm` | Bloqueos declarados con su motivo, y liberaciones con mercado | Manual |
 | `PRO-REG-46` | Ingreso de MP por proveedor: enlaza lote de proveedor con lote SW | `sincronizar_lab.py`, automático |
@@ -229,13 +230,6 @@ fallar en silencio.
 5. **24 filas con fecha de bloqueo futura** (hasta 16/07/2027), probable tipeo de año.
    Quedan bloqueadas sin forma de liberarse, porque ninguna muestra puede ser posterior.
    El motor lo avisa por consola y en la propuesta; la corrección va en el xlsm.
-
-6. **Dónde vive el registro de detenciones.** Desde el 10/08/2026 el sitio las escribe en
-   Postgres —el esquema ya lo preveía: la policy `detencion_alta` deja insertar a `calidad`
-   y `admin`, y el rol del motor solo puede leer—. Pero `cruce2.py` sigue leyendo
-   `REGISTRO DETENCIONES.xlsx`. Mientras las dos fuentes convivan, una detención cargada
-   en el sitio **no entra al cruce** hasta que alguien la copie al Excel. Hay que elegir:
-   que el motor lea de Postgres, o que el sitio siga exportando filas para el Excel.
 
 **Trabajo pendiente:**
 
