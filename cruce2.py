@@ -611,7 +611,8 @@ if os.path.exists(F_OPE):
             mot = " / ".join(dict.fromkeys(
                 str(v).strip() for v in (x.get("Observacion"), x.get("FECHA BLOQUEO"))
                 if pd.notna(v) and isinstance(v, str) and str(v).strip()))
-            blo.append({"_L": norm(x["Traza"]), "LOTE": str(x["Traza"]).strip(),
+            blo.append({"_L": norm(x["Traza"]), "_U": norm_u(x["Traza"]),
+                        "LOTE": str(x["Traza"]).strip(),
                         "FECHA": x["_FB"], "MOTIVO": mot,
                         "PRODUCTO": str(x.get(_cdesc, "") or "").strip() if _cdesc else "",
                         "DECLARADO": "Bloqueado" if x["_E"] == "bloqueado" else "sin estado"})
@@ -658,7 +659,24 @@ def criterios_del_motivo(txt):
 
 
 HOY = pd.Timestamp.now().normalize()
-ope = pd.DataFrame(columns=["_L", "LOTE", "FECHA", "MOTIVO", "PRODUCTO", "DECLARADO", "_CRIT"])
+ope = pd.DataFrame(columns=["_L", "_U", "LOTE", "FECHA", "MOTIVO", "PRODUCTO",
+                            "DECLARADO", "_CRIT"])
+
+
+def alcanza(traza_u, unidad_u):
+    """Si un bloqueo declarado sobre traza_u alcanza a esta unidad del laboratorio.
+
+    Cuando quien lo escribio puso el sufijo -y lo pone en el 64% de los casos-
+    identifico el dia exacto: @2CK26621761E*29W es el 15 de julio, y no dice nada
+    del 10 ni del 13. Sin sufijo, el bloqueo es sobre el lote y alcanza a todas
+    sus unidades.
+
+    Contra el STOCK se sigue bloqueando el lote entero igual: Fishken no registra
+    el sufijo, asi que las cajas de los dias conformes no se pueden separar.
+    """
+    if "*" in traza_u:
+        return unidad_u == traza_u or unidad_u.startswith(traza_u)
+    return emparenta(unidad_u.split("*")[0], traza_u)
 if blo:
     ope = pd.DataFrame(blo)
     ope = ope[ope["_L"].str.len() >= MIN_LOTE].copy()
@@ -1522,12 +1540,18 @@ for b, g in lab.groupby("_U"):
     causas_b = [c for c in CRIT if hb[c]["estado"] == "NO CONFORME"]
     rem_b = [c for c in CRIT if hb[c]["estado"] == "REMUESTREO CONFORME"]
     dv = det[det["_L"].map(lambda x: emparenta(x, b)) & det["_VIGENTE"]]
+    # El registro operativo suele identificar el dia con el sufijo: aqui, que se
+    # responde por unidad, hay que respetarlo. En el RESUMEN POR LOTE no se puede,
+    # porque el stock no distingue dias y las cajas no se separan.
+    ov = ope[ope["_U"].map(lambda x: alcanza(x, b))] if len(ope) else ope
+    motivo_ov = " | ".join(sorted({str(m).strip() for m in ov["MOTIVO"]
+                                   if str(m).strip()})[:2])[:150] if len(ov) else ""
     base = next((s for s in lotes_stock if emparenta(s, b)), "")
     juzgable = any(hb[c]["estado"] in ("CONFORME", "NO CONFORME", "REMUESTREO CONFORME")
                    for c in CRIT)
     if (dv["_ESTADO"] == "PNC").any():
         est = "PNC"
-    elif causas_b or len(dv):
+    elif causas_b or len(dv) or len(ov):
         est = "BLOQUEADO"
     elif rem_b:
         est = "CANDIDATO A LIBERAR"
@@ -1545,6 +1569,7 @@ for b, g in lab.groupby("_U"):
         "RE-MUESTREO CONFORME": " | ".join(hb[c]["txt"] for c in rem_b),
         "MOTIVO - DETENCION": " | ".join(f"{d['ID']} {d['TIPO DE DESVIACION']}"
                                          for _, d in dv.iterrows()),
+        "MOTIVO - REGISTRO OPERATIVO": motivo_ov,
         "LISTERIA": rb["listeria"] or "sin dato",
         "RAM MAX (UFC/g)": rb["ram"],
         "NITRITO PROMEDIO (ppm)": rb["nitrito"],

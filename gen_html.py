@@ -648,7 +648,13 @@ function estadoLinea(x){
   if(x.dts.some(d => d['ESTADO'] === 'PNC')) return 'PNC';
   // Un bloqueo declarado manda sobre un laboratorio conforme: el origen es otro y
   // solo lo cierra una liberacion explicita.
-  const decl = x.dts.length || x.ops.some(o => o.opeb || o.mpb);
+  // Si el codigo trae el sufijo y el laboratorio respondio por ESA unidad, el
+  // veredicto del batch ya incluye los bloqueos operativos que la alcanzan.
+  // Volver a aplicar los del lote bloquearia dias que nadie bloqueo: el registro
+  // identifica el dia en el 64% de los casos. La materia prima si se aplica
+  // igual, porque se declara sobre el lote y alcanza a todas sus unidades.
+  const porUnidad = x.r && x.r.nivel === 'EXACTO' && normU(x.usado).includes('*');
+  const decl = x.dts.length || x.ops.some(o => (o.opeb && !porUnidad) || o.mpb);
   if(x.r){let e = x.r.hits.map(h => h.estado).sort((a,b)=>ORD[a]-ORD[b])[0];
     // El resultado del batch vecino no libera este batch, solo puede bloquearlo.
     if(x.r.nivel === 'APROXIMADO' && e !== 'BLOQUEADO') e = 'SIN RESULTADO DE LAB';
