@@ -152,7 +152,10 @@ Tres reglas transversales:
   registra la letra**, así que un lote de bodega arrastra a todos sus batches.
   Hoy eso implica que ~20.000 cajas quedan bloqueadas por un batch que falló sin
   poder separar las conformes.
-- El sufijo `*NNL` de los lotes del laboratorio (semana y turno) sí es descartable.
+- **El sufijo `*NNL` distingue días de producción**, cada uno con su `LOTE JULIANO`.
+  No es ruido: se descarta solo para cruzar contra el stock, porque Fishken no lo
+  registra. Cuando el packing list trae el código completo, la consulta responde por
+  esa unidad y no por el lote entero.
 
 ## Fuentes
 

@@ -42,6 +42,21 @@ def norm(s):
     return re.sub(r"[^A-Z0-9@]", "", str(s).strip().upper().split("*")[0])
 
 
+def norm_u(s):
+    """Unidad de laboratorio: el lote CON su sufijo de semana y turno.
+
+    El sufijo *NNL NO es ruido, aunque durante mucho tiempo se trato como tal.
+    Distingue dias de produccion y cada uno lleva su propio LOTE JULIANO:
+    @2CK26621761E*28V, *29L y *29W son el 10, el 13 y el 15 de julio, y solo el
+    ultimo salio con nitrito bajo. Fusionarlos bloquea dos dias conformes.
+
+    Contra el stock hay que seguir agregando, porque Fishken no registra el
+    sufijo; pero cuando el packing list trae el codigo completo, hay con que
+    responder exacto y no hay razon para perder esa precision.
+    """
+    return re.sub(r"[^A-Z0-9@*]", "", str(s).strip().upper())
+
+
 def laxo(s):
     """Version tolerante, solo para detectar posibles errores de tipeo en @ / B."""
     return norm(s).lstrip("@").lstrip("B")
@@ -162,6 +177,7 @@ if not marcos_lab:
 lab = pd.concat(marcos_lab, ignore_index=True)
 
 lab["_L"] = lab["LOTE SW"].map(norm)
+lab["_U"] = lab["LOTE SW"].map(norm_u)
 lab["_FECHA"] = pd.to_datetime(lab["FECHA INGRESO"], errors="coerce")
 _lm = lab[LM].astype(str).apply(lambda c: c.str.strip().str.upper())
 lab["_LM_P"] = (_lm == "P").any(axis=1)
@@ -1488,12 +1504,19 @@ res = res.sort_values(["ESTADO", "EN STOCK", "LOTE"],
 
 # ------------------------------------------------- veredicto por batch (lab)
 # Son DOS preguntas distintas contra la misma fuente, y no deben mezclarse:
-#   packing list -> viene con el batch exacto: se resuelve contra LAB-REG-08 y punto.
-#   stock        -> solo trae el lote base: ahi si hay que agregar los batches, con
-#                   la perdida de precision que eso implica.
+#   packing list -> viene con el codigo exacto, sufijo incluido: se resuelve
+#                   contra LAB-REG-08 y punto.
+#   stock        -> solo trae el lote base: ahi si hay que agregar, con la
+#                   perdida de precision que eso implica.
 # Esta hoja responde la primera. La hoja RESUMEN POR LOTE responde la segunda.
+#
+# Se agrupa por _U -el codigo CON sufijo- y no por _L. Agrupar sin el sufijo
+# juntaba dias de produccion distintos: bastaba que el ultimo saliera mal para
+# bloquear a los anteriores, que estaban conformes y tenian lote juliano propio.
+# Un codigo pegado sin sufijo sigue resolviendo contra todas sus unidades, que
+# es lo correcto: sin el sufijo no hay con que precisar.
 bat = []
-for b, g in lab.groupby("_L"):
+for b, g in lab.groupby("_U"):
     rb, _ = evalua(g)
     hb = {c: historia(g, c) for c in CRIT}
     causas_b = [c for c in CRIT if hb[c]["estado"] == "NO CONFORME"]
@@ -1514,7 +1537,7 @@ for b, g in lab.groupby("_L"):
         est = "SIN ANALISIS"
     lb_f, lb_m, lb_o = liberacion(b)
     bat.append({
-        "BATCH": str(g["LOTE SW"].iloc[0]).strip().split("*")[0],
+        "BATCH": str(g["LOTE SW"].iloc[0]).strip(),
         "BATCH (normalizado)": b,
         "ESTADO": est,
         "CAUSAS LAB": ",".join(causas_b),

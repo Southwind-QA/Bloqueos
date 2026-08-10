@@ -375,6 +375,10 @@ const nf = n => Number(n||0).toLocaleString('es-CL');
 const cls = e => String(e).toUpperCase().replace(/[^A-Z]/g,'');
 const chip = e => '<span class="chip '+cls(e)+'">'+esc(e)+'</span>';
 const norm = s => String(s).trim().toUpperCase().split('*')[0].replace(/[^A-Z0-9@]/g,'');
+// El sufijo *NNL distingue dias de produccion, cada uno con su lote juliano: al
+// resolver el packing list se conserva, porque ahi si viene el codigo completo.
+// Solo se descarta contra el stock, que no lo registra.
+const normU = s => String(s).trim().toUpperCase().replace(/[^A-Z0-9@*]/g,'');
 const RX_LOTE = /^[@B]?\d[A-Z]{2}\d{4,}/;
 const esLote = t => RX_LOTE.test(norm(t)) && norm(t).length >= MIN;
 const $ = id => document.getElementById(id);
@@ -812,6 +816,14 @@ function porque(o){
 // ---------------------------------------------------------------- packing list
 function resolver(tok){
   const q = norm(tok); if(!esLote(tok)) return null;
+  // Si el codigo pegado trae el sufijo *NNL, se responde por ESA unidad y no por
+  // el lote completo: son dias de produccion distintos, con lote juliano propio,
+  // y el que uno haya salido mal no dice nada de los otros.
+  const u = normU(tok);
+  if(u.includes('*')){
+    const exacto = B.filter(x => x.normalizado === u);
+    if(exacto.length) return {nivel:'EXACTO', hits:exacto};
+  }
   const hijos = B.filter(x=>x.normalizado.startsWith(q)).sort((a,b)=>ORD[a.estado]-ORD[b.estado]);
   if(hijos.length===1 && hijos[0].normalizado===q) return {nivel:'EXACTO', hits:hijos};
   if(hijos.length) return {nivel:'LOTE BASE', hits:hijos};

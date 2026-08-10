@@ -111,7 +111,14 @@ Todas se descubrieron rompiendo algo. No las deshagas.
   bloqueadas por un batch que falló, sin poder separar las conformes.
 - **La clave es el código normalizado, no la etiqueta visible.** 38 de 545 filas
   repetían etiqueta.
-- **El sufijo `*NNL`** de los lotes del laboratorio (semana y turno) sí es descartable.
+- **El sufijo `*NNL` NO es descartable, aunque se creyó que sí durante meses.** Es semana
+  y turno de producción —coincide con la semana ISO de la fecha en el 98% de las muestras—
+  y cada uno lleva su propio `LOTE JULIANO`. `@2CK26621761E*28V`, `*29L` y `*29W` son el 10,
+  el 13 y el 15 de julio: solo el último salió con nitrito bajo. Descartarlo fusionaba días
+  distintos y bastaba que el último fallara para bloquear a los anteriores. Hay **144 bases
+  con unos sufijos conformes y otros no**. Contra el stock hay que seguir agregando —Fishken
+  no registra el sufijo— pero cuando el packing list trae el código completo se responde por
+  esa unidad.
 - **El lote de proveedor es otra convención, no la del lote SW.** Ahí el sufijo tras
   el guion es el pallet (`@4M1262004-VQ009F`), una celda puede traer varios lotes
   separados por `/`, y el prefijo de certificación y la confusión O/0 **sí** son ruido

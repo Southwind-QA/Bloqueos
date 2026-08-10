@@ -502,6 +502,10 @@ const nf=n=>Number(n||0).toLocaleString('es-CL');
 const cls=e=>String(e).toUpperCase().replace(/[^A-Z]/g,'');
 const chip=e=>'<span class="chip '+cls(e)+'">'+esc(e)+'</span>';
 const norm=s=>String(s).trim().toUpperCase().split('*')[0].replace(/[^A-Z0-9@]/g,'');
+// El sufijo *NNL distingue dias de produccion, cada uno con su lote juliano: al
+// resolver el packing list se conserva, porque ahi si viene el codigo completo.
+// Solo se descarta contra el stock, que no lo registra.
+const normU=s=>String(s).trim().toUpperCase().replace(/[^A-Z0-9@*]/g,'');
 const causasDe=o=>o.causas.concat(o.det?['DETENCION']:[]).concat(o.ope?['REGISTRO']:[])
   .concat(o.mp?['MATERIAPRIMA']:[]);
 
@@ -583,6 +587,14 @@ const esLote = tok => RX_LOTE.test(norm(tok)) && norm(tok).length >= MIN;
 
 function resolver(tok){
   const q = norm(tok); if(!esLote(tok)) return null;
+  // Si el codigo pegado trae el sufijo *NNL, se responde por ESA unidad y no por
+  // el lote completo: son dias de produccion distintos, con lote juliano propio,
+  // y el que uno haya salido mal no dice nada de los otros.
+  const u = normU(tok);
+  if(u.includes('*')){
+    const exacto = B.filter(x => x.n === u);
+    if(exacto.length) return {nivel:'EXACTO', hits:exacto};
+  }
   // startsWith(q) incluye al propio q: si el laboratorio tiene un registro sin letra
   // de batch, no debe tapar a los batches del mismo lote. Con descendientes, la
   // respuesta correcta es el agregado; solo si esta solo es un match exacto.
