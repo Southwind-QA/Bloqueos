@@ -845,7 +845,18 @@ function estadoLinea(x){
 function detalleLinea(x){
   if(!x.cand) return '<span class="mut">No hay ningún código con forma de lote. Probablemente es una '+
     'cabecera, un subtotal o un separador.</span>';
-  const op = (x.ops||[]).map(o=>`<div><span class="tag REGISTRO">Registro operativo</span>`+
+  // El laboratorio puede estar conforme para este codigo y el lote seguir
+  // bloqueado: el registro operativo, las detenciones y la materia prima
+  // bloquean el LOTE, no un batch ni un dia. Sin decirlo, la tabla de batches
+  // -donde este sale LIBERADO- parece contradecir el estado de la fila.
+  const labLimpio = x.r && !x.r.hits.some(b => b.estado==='BLOQUEADO' || b.estado==='PNC');
+  const choca = estadoLinea(x)==='BLOQUEADO' && labLimpio ?
+    '<div class="aviso"><span>&#9888;</span><div><b>El laboratorio de este código está '+
+    'conforme, pero el lote sigue bloqueado por un origen declarado.</b> Las detenciones, '+
+    'el registro operativo y la materia prima bloquean el <b>lote completo</b>: no '+
+    'distinguen batch ni día de producción, porque no se declaran a ese nivel. Por eso '+
+    'abajo verás este batch como liberado y la fila como bloqueada.</div></div>' : '';
+  const op = choca + (x.ops||[]).map(o=>`<div><span class="tag REGISTRO">Registro operativo</span>`+
     (o.normalizado!==norm(x.cand)?`<span class="mono">${esc(o.lote)}</span> `:'')+esc(o.motivo_operativo)+
     (o.operativo_bloquea?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>').join('');
   if(!x.r) return '<div class="why">'+op+'<div><b>El laboratorio aún no tiene resultado para este lote.</b></div>'+

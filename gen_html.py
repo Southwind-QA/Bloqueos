@@ -658,6 +658,17 @@ function estadoLinea(x){
 }
 function detalle(x){
   const h = [];
+  // El laboratorio puede estar conforme para este codigo y el lote seguir
+  // bloqueado: el registro operativo, las detenciones y la materia prima
+  // bloquean el LOTE, no un batch ni un dia. Sin decirlo, la tabla de batches
+  // -donde este sale LIBERADO- parece contradecir el estado de la fila.
+  const labLimpio = x.r && !x.r.hits.some(b => b.estado==='BLOQUEADO' || b.estado==='PNC');
+  if(estadoLinea(x)==='BLOQUEADO' && labLimpio)
+    h.push('<div class="aviso"><span>&#9888;</span><div><b>El laboratorio de este codigo '+
+      'esta conforme, pero el lote sigue bloqueado por un origen declarado.</b> Las '+
+      'detenciones, el registro operativo y la materia prima bloquean el <b>lote '+
+      'completo</b>: no distinguen batch ni dia de produccion, porque no se declaran a ese '+
+      'nivel. Por eso abajo veras este batch como liberado y la fila como bloqueada.</div></div>');
   if(x.r){
     const nivel = x.r.nivel, hits = x.r.hits;
     const malos = hits.filter(b => b.estado === 'BLOQUEADO' || b.estado === 'PNC');
