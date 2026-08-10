@@ -116,6 +116,20 @@ operativo también viven en `config.py`, en `MOTIVOS_LAB`. Ahí se traduce el te
 libre (`presencia de LM`, `alto en ram`) al criterio que lo cierra. Un motivo que
 no calce con ninguno no es liberable contra el laboratorio.
 
+### Una firma puede cubrir solo parte
+
+Firmar no es siempre liberar todo:
+
+- **Por mercado.** Un congelado con destino EE.UU. exige listeria; el mismo producto
+  a mercado nacional no. Si la firma dice `Nacional`, el lote **sigue bloqueado** para
+  Echo Falls o Slade Gorton, y el motor lo dice.
+- **Por tratamiento.** Las altas presiones hidrostáticas son un proceso letal que se
+  aplica a un despacho completo. Levantan **listeria y RAM**, no lo fisicoquímico: un
+  nitrito bajo sigue bajo después del APH, y ese lote queda bloqueado igual.
+
+Los lotes que viajaron juntos se firman en bloque desde el sitio, pegando el packing
+list del despacho, y cada uno queda con su firma propia bajo la misma `ruta`.
+
 Tres reglas transversales:
 
 1. **Un criterio deja de estar vigente** solo si hay muestras posteriores que

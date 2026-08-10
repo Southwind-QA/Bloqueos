@@ -680,7 +680,7 @@ if blo:
 F_DEC = config.ruta("REGISTRO DECISIONES.xlsx")
 COLS_DEC = ["ID", "FECHA", "TIPO", "LOTE", "BATCH", "DETENCION", "ANULA", "MERCADOS",
             "EVIDENCIA", "COMENTARIO", "FIRMADO POR", "RUT",
-            "HUELLA DE CRITERIOS AL FIRMAR"]
+            "HUELLA DE CRITERIOS AL FIRMAR", "TRATAMIENTO", "RUTA"]
 dec = pd.DataFrame(columns=COLS_DEC)
 
 
@@ -700,7 +700,8 @@ def decisiones_de_postgres():
                 # leer: se resuelve en la vista y aqui basta con el id
                 cur.execute("select d.id, d.firmado_en, d.tipo, d.lote, d.batch, "
                             "d.detencion_id, d.anula, d.mercados, d.evidencia, "
-                            "d.comentario, d.firmado_por::text, v.huella "
+                            "d.comentario, d.firmado_por::text, v.huella, "
+                            "d.tratamiento, d.ruta "
                             "from bloqueos.decision d "
                             "left join bloqueos.criterio_version v on v.id = d.criterio_ver "
                             "order by d.id")
@@ -712,7 +713,8 @@ def decisiones_de_postgres():
         return None
     d = pd.DataFrame(filas, columns=["ID", "FECHA", "TIPO", "LOTE", "BATCH", "DETENCION",
                                      "ANULA", "MERCADOS", "EVIDENCIA", "COMENTARIO",
-                                     "FIRMADO POR", "HUELLA DE CRITERIOS AL FIRMAR"])
+                                     "FIRMADO POR", "HUELLA DE CRITERIOS AL FIRMAR",
+                                     "TRATAMIENTO", "RUTA"])
     d["MERCADOS"] = d["MERCADOS"].map(
         lambda v: "/".join(v) if isinstance(v, (list, tuple)) else (v or ""))
     d["RUT"] = ""
@@ -748,12 +750,40 @@ else:
     dec["_BATCH"] = ""
 
 
-def firmada(clave, rows_lab):
+# Lo que cada tratamiento corrige de verdad. Las altas presiones hidrostaticas
+# son un proceso letal: resuelven la carga microbiana, pero no cambian la
+# quimica. Un nitrito bajo sigue bajo despues del APH, y un lote con ese
+# problema no queda liberado por haber pasado por la maquina.
+LEVANTA = {"APH": {"LISTERIA", "RAM"}}
+
+
+def cubre_destino(mercados, clave):
+    """Si una firma para ciertos mercados alcanza al destino de este lote.
+
+    Liberar para Nacional no es liberar para Echo Falls. Sin mercados anotados
+    la firma vale para todo, que es como se firmaba antes.
+    """
+    if not mercados:
+        return True, ""
+    m = {x.strip().upper() for x in mercados if str(x).strip()}
+    d = destino_restringido(clave)
+    if d == "EE.UU." and not ({"USA", "EEUU", "EE.UU."} & m):
+        return False, "el destino es EE.UU. y la firma no lo cubre"
+    if d == "Costa Rica" and not ({"COSTA RICA", "EXPORTACION", "EXPORTACIÓN"} & m):
+        return False, "el destino es Costa Rica y la firma no lo cubre"
+    if d is None:
+        return False, "no se pudo determinar el destino, asi que no se puede acreditar "\
+                      "que la firma lo cubra"
+    return True, ""
+
+
+def firmada(clave, rows_lab, causas_vivas=()):
     """Liberacion firmada aplicable a un lote o batch.
 
     Devuelve (dict de la decision, aviso) o (None, ""). El aviso dice por que
-    una firma existente NO alcanza: o llego un resultado no conforme despues,
-    o cambiaron los criterios.
+    una firma existente NO alcanza: llego un resultado no conforme despues,
+    cambiaron los criterios, la firma no cubre el destino de este lote, o el
+    tratamiento no corrige lo que lo bloquea.
     """
     if not len(dec):
         return None, ""
@@ -771,11 +801,29 @@ def firmada(clave, rows_lab):
             if h["estado"] == "NO CONFORME":
                 return None, (f"Liberacion firmada {d['ID']} del {f:%d/%m/%Y} SUPERADA: "
                               f"hay un resultado posterior no conforme ({h['txt']})")
+    # ---- alcance por mercado
+    merc = [x for x in str(d.get("MERCADOS", "") or "").split("/") if x.strip()]
+    ok, por_que = cubre_destino(merc, clave)
+    if not ok:
+        return None, (f"Liberacion firmada {d['ID']} para {'/'.join(merc)}: no aplica aqui "
+                      f"porque {por_que}. Sigue bloqueado para este destino.")
+
+    # ---- alcance por tratamiento
+    trat = str(d.get("TRATAMIENTO", "") or "").strip().upper()
+    if trat:
+        levanta = LEVANTA.get(trat, set())
+        fuera = [c for c in causas_vivas if c not in levanta]
+        if fuera:
+            return None, (f"Liberacion por {trat} ({d['ID']}): el tratamiento no corrige "
+                          f"{', '.join(fuera)}. Sigue bloqueado por eso.")
+
     aviso = ""
     hf = str(d.get("HUELLA DE CRITERIOS AL FIRMAR", "")).strip()
     if hf and hf != config.huella_criterios():
         aviso = (f"Los criterios cambiaron despues de firmar {d['ID']}: "
                  "conviene revalidar la liberacion")
+    if merc:
+        aviso = (aviso + " | " if aviso else "") + f"Firma valida solo para {'/'.join(merc)}"
     return d, aviso
 
 
@@ -1265,7 +1313,10 @@ for l in universo:
         estado, origen = "LIBERADO", ""
 
     # ---- una liberacion firmada manda sobre el veredicto calculado
-    dfirm, aviso_firma = firmada(l, rows_lab)
+    # las causas vivas dicen si el tratamiento firmado alcanza: un APH no
+    # arregla un nitrito bajo, por mucho que el lote haya ido en ese despacho
+    _vivas = set(causas) | ({"LISTERIA"} if mp_pend else set())
+    dfirm, aviso_firma = firmada(l, rows_lab, _vivas)
     obs = []
     if aviso_firma:
         obs.append(aviso_firma)
@@ -1378,6 +1429,10 @@ for l in universo:
              else " | ".join(motivo_lib))
             if estado in ("LIBERADO", "CANDIDATO A LIBERAR", "LIBERADO POR DECISION") else ""),
         "FIRMADA POR": (str(dfirm.get("FIRMADO POR", "")) if dfirm is not None
+                        and estado == "LIBERADO POR DECISION" else ""),
+        "MERCADOS FIRMADOS": (str(dfirm.get("MERCADOS", "") or "") if dfirm is not None
+                              and estado == "LIBERADO POR DECISION" else ""),
+        "TRATAMIENTO": (str(dfirm.get("TRATAMIENTO", "") or "") if dfirm is not None
                         and estado == "LIBERADO POR DECISION" else ""),
         "ESTADO POR CRITERIO": por_crit,
         "EVIDENCIA (ultimas muestras)": evidencia,

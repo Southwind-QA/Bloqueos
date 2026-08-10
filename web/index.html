@@ -309,6 +309,32 @@ td.pq{min-width:300px} td.sec{min-width:130px;color:var(--ink-2);font-size:12.5p
       </div>
     </section>
 
+    <section id="v-aph" hidden>
+      <div class="card">
+        <h2>Liberar una ruta de altas presiones</h2>
+        <p class="lead">Pega el <b>packing list del despacho que se fue a APH</b>. Las altas
+          presiones son un proceso letal: levantan <b>listeria y RAM</b> en los lotes tratados,
+          pero no lo fisicoquímico — un nitrito bajo sigue bajo después del APH, y esos lotes
+          quedan bloqueados igual. Se firma la ruta completa de una vez, y cada lote queda con
+          su propia firma a tu nombre.</p>
+        <div class="toolbar">
+          <div><label class="fld" for="aph-ruta">Ruta o despacho</label>
+            <input id="aph-ruta" placeholder="Ej: APH-2026-08-10 o el número de despacho"></div>
+          <div><label class="fld" for="aph-merc">Mercados</label>
+            <input id="aph-merc" placeholder="Vacío = todos"></div>
+        </div>
+        <label class="fld" for="aph-txt" style="margin-top:12px">Packing list</label>
+        <textarea id="aph-txt" placeholder="Pega aquí el packing list del despacho…"></textarea>
+        <div class="acts">
+          <button class="btn" onclick="leerAPH()">Analizar el despacho</button>
+          <button class="btn ghost" onclick="limpiarAPH()">Limpiar</button>
+          <button class="btn" id="aph-firmar" hidden onclick="firmarAPH()">Firmar la ruta</button>
+          <span id="aph-aviso" class="mut"></span>
+        </div>
+        <div id="aph-out"></div>
+      </div>
+    </section>
+
     <section id="v-buscar" hidden>
       <div class="card">
         <h2>Buscar</h2>
@@ -340,7 +366,7 @@ const CAUSAS = [
 const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
              'LIBERADO POR DECISION':4,'LIBERADO':5};
 const VIEWS = [['consulta','Consulta con packing list'],['stock','Estado de stock'],
-  ['detenciones','Detenciones'],['buscar','Buscar']];
+  ['detenciones','Detenciones'],['aph','Liberar ruta APH'],['buscar','Buscar']];
 
 let L = [], B = [], BIDX = new Map(), yo = null, sel = new Set(), ULT = [], ULT_STOCK = [];
 
@@ -627,6 +653,85 @@ window.confirmarFirma = async () => {
   cerrar();
   alert('Firmado. El próximo cruce lo toma; en pantalla se ve recién entonces, '+
     'porque el estado del lote lo recalcula el motor.');
+};
+
+// ---------------------------------------------------------------- ruta APH
+// Se manda a altas presiones un despacho completo, no un lote suelto: por eso
+// la unidad de trabajo es el packing list y no el lote. Cada lote igual queda
+// con su firma propia, para que despues se sepa quien libero que.
+let APH = [];
+
+window.leerAPH = () => {
+  const txt = $('aph-txt').value;
+  if(!txt.trim()){$('aph-out').innerHTML=''; $('aph-firmar').hidden=true; return;}
+  const vistos = new Map();
+  for(const linea of txt.split(/\r?\n/)){
+    for(const t of linea.split(/[\s,;|]+/).filter(esLote)){
+      const n = norm(t);
+      // el packing list trae el batch; el bloqueo vive en el lote de bodega
+      const o = L.find(x => x.normalizado === n) || L.find(x => emparenta(x.normalizado, n));
+      if(o && !vistos.has(o.normalizado)) vistos.set(o.normalizado, o);
+    }
+  }
+  APH = [...vistos.values()];
+  if(!APH.length){
+    $('aph-out').innerHTML = '<div class="card empty">No se reconoció ningún lote. '+
+      'Revisa que el packing list traiga los códigos completos.</div>';
+    $('aph-firmar').hidden = true; return;
+  }
+  // APH levanta listeria y RAM. Lo que quede bloqueado por nitrito o por un
+  // motivo que el laboratorio no mide sigue bloqueado, y hay que decirlo antes
+  // de firmar, no despues.
+  const clasif = APH.map(o => {
+    const causas = (o.causas||[]);
+    const fuera = causas.filter(c => c !== 'LISTERIA' && c !== 'RAM');
+    const bloqueado = o.estado === 'BLOQUEADO' || o.estado === 'CANDIDATO A LIBERAR';
+    return {o, fuera, bloqueado,
+      queda: fuera.length ? 'sigue bloqueado por '+fuera.join(', ')
+        : (o.estado === 'PNC' ? 'PNC: no se libera' : (bloqueado ? 'lo libera el APH' : 'ya estaba liberado'))};
+  });
+  const libera = clasif.filter(x => x.bloqueado && !x.fuera.length && x.o.estado !== 'PNC');
+  const cajas = libera.reduce((s,x)=>s+(x.o.cajas||0),0);
+  $('aph-out').innerHTML =
+    tiles([['Lotes en el despacho', APH.length], ['Los libera el APH', libera.length],
+           ['Cajas', cajas], ['Quedan bloqueados', clasif.length - libera.length]])+
+    '<div class="tw"><table><thead><tr><th>Lote</th><th>Estado</th><th>Cajas</th>'+
+    '<th>Causas</th><th>Qué pasa al firmar</th></tr></thead><tbody>'+
+    clasif.map(x=>`<tr><td class="mono">${esc(x.o.lote)}</td><td>${chip(x.o.estado)}</td>`+
+      `<td class="n">${nf(x.o.cajas||0)}</td><td class="sec">${esc((x.o.causas||[]).join(', '))}</td>`+
+      `<td class="sec">${x.fuera.length?'<b>'+esc(x.queda)+'</b>':esc(x.queda)}</td></tr>`).join('')+
+    '</tbody></table></div>';
+  $('aph-aviso').textContent = `${libera.length} de ${APH.length} lote(s) se liberan`;
+  $('aph-firmar').hidden = !libera.length;
+};
+window.limpiarAPH = () => {
+  $('aph-txt').value=''; $('aph-out').innerHTML='';
+  $('aph-aviso').textContent=''; $('aph-firmar').hidden=true; APH=[];
+};
+window.firmarAPH = async () => {
+  if(!yo.puede_firmar) return alert('Tu cuenta no puede firmar liberaciones.');
+  if(!CRIT_VER) return alert('No se pudo leer la versión de criterios vigente.');
+  const ruta = $('aph-ruta').value.trim();
+  if(!ruta) return alert('Ponle nombre a la ruta: es lo que después permite saber qué '+
+    'lotes viajaron juntos y se trataron en el mismo despacho.');
+  const merc = $('aph-merc').value.split(/[\/,;]/).map(s=>s.trim()).filter(Boolean);
+  const libera = APH.filter(o => (o.estado === 'BLOQUEADO' || o.estado === 'CANDIDATO A LIBERAR')
+    && !(o.causas||[]).some(c => c !== 'LISTERIA' && c !== 'RAM'));
+  if(!libera.length) return alert('No hay lotes que el APH pueda liberar en este despacho.');
+  if(!confirm(`Se van a firmar ${libera.length} liberación(es) por APH en la ruta ${ruta}, `+
+    'a tu nombre. No se puede deshacer: si queda mal, se anula con otra firma. ¿Confirmas?')) return;
+  const filas = libera.map(o => ({tipo:'LIBERACION', lote:o.normalizado,
+    evidencia:`Altas presiones hidrostaticas, ruta ${ruta}`,
+    mercados: merc.length ? merc : null, tratamiento:'APH', ruta: ruta,
+    comentario:`Liberado por tratamiento APH junto con el despacho ${ruta}`,
+    criterio_ver: CRIT_VER.id, firmado_por: yo.id}));
+  const {error} = await sb.from('decision').insert(filas);
+  if(error){
+    const rls = /row-level security|permission/i.test(error.message);
+    return alert(rls ? 'Tu cuenta no tiene permiso para firmar.' : 'No se pudo firmar: '+error.message);
+  }
+  limpiarAPH();
+  alert(filas.length+' liberación(es) firmadas. El próximo cruce las toma.');
 };
 
 async function traerDet(){
