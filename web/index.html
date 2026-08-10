@@ -688,6 +688,13 @@ function porque(o){
   if(o.motivo_detencion) h += `<div><span class="hd">Detención</span> ${esc(o.motivo_detencion)}</div>`;
   if(o.motivo_operativo) h += `<div><span class="hd">Registro operativo</span> ${esc(o.motivo_operativo)}`+
     (o.operativo_bloquea?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>';
+  if(o.motivo_mp) h += `<div><span class="hd">Materia prima</span> ${esc(o.motivo_mp)}`+
+    (o.mp_bloquea?'':' <span class="mut">(ya no bloquea)</span>')+'</div>';
+  // Lo que dejo al lote candidato es lo primero que necesita leer quien va a
+  // firmar: sin esto el panel muestra el bloqueo pero no el argumento que lo
+  // levanta, y firmar se vuelve un acto a ciegas.
+  if(o.propuesta) h += '<div class="note"><b>Qué falta para liberarlo:</b><br>'+
+    o.propuesta.split('||').map(p=>esc(p.trim())).join('<br>')+'</div>';
   if(o.motivo_liberacion) h += `<div class="note"><b>Por qué quedó así:</b> ${esc(o.motivo_liberacion)}</div>`;
   if(o.historia_remuestreo) h += `<div class="note"><b>Re-muestreo:</b> ${esc(o.historia_remuestreo)}</div>`;
   if(o.linea) h += `<div class="note">Línea ${esc(o.linea)}`+

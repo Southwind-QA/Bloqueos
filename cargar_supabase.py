@@ -124,9 +124,9 @@ with psycopg.connect(URL, autocommit=False) as cx:
                  liberacion_declarada, mercados_liberados, fuente_liberacion, en_stock,
                  bodegas, productos, clientes, cajas, kg, piezas,
                  batches_con_resultado, batches_no_conformes, n_muestras, ultima_muestra,
-                 wps, observaciones, corrida_id)
+                 wps, propuesta, observaciones, corrida_id)
                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             [(txt(r["LOTE"]), txt(r["LOTE (normalizado)"]), txt(r["ESTADO"]),
               txt(r["ORIGEN DEL BLOQUEO"]), lista(r["CAUSAS LAB"]),
               lista(r["CAUSAS CON REMUESTREO CONFORME"]), txt(r["MOTIVO - LABORATORIO"]),
@@ -144,7 +144,7 @@ with psycopg.connect(URL, autocommit=False) as cx:
               ent(r["CAJAS EN STOCK"]), 0, 0,
               ent(r["BATCHES CON RESULTADO"]), txt(r["BATCHES NO CONFORMES"]),
               ent(r["N MUESTRAS LAB"]), fecha(r["ULTIMA MUESTRA LAB"]),
-              num(r["WPS MIN (%)"]),
+              num(r["WPS MIN (%)"]), txt(r["PROPUESTA DE LIBERACION (no libera)"]),
               txt(r["OBSERVACIONES"]), corrida) for _, r in res.iterrows()])
         print("  lote:", len(res))
 
