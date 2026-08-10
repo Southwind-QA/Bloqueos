@@ -88,7 +88,13 @@ TXT_CONGELADA = ("carpaccio", "congelad")
 MOTIVOS_LAB = (
     (r"listeria|\bl\.?\s?m\.?\b|\blm\b", "LISTERIA"),
     (r"\bram\b|recuento|aerobio|mesofil", "RAM"),
-    (r"nitrito", "NITRITO"),
+    # sal y WPS entran aqui porque el nitrito no se evalua solo: lo decide el
+    # binomio con la sal en fase acuosa. Un "salio bajo en sal" se responde con
+    # la misma muestra que un "salio bajo en nitrito".
+    # "salado" y "salmuera" quedan fuera a proposito: describen el producto
+    # ("filete salado seco") y no una desviacion. Clasificarlos como NITRITO
+    # dejaria que un nitrito conforme liberara un bloqueo que era por otra cosa.
+    (r"nitrito|\bsal\b|\bwps\b", "NITRITO"),
 )
 
 # Un motivo que no calza con ninguna expresion de arriba NO es liberable contra
