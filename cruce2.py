@@ -927,6 +927,28 @@ def _texto(row, c):
     return binomio(row["_NIT"], row["_WPS"])[1]
 
 
+def cuenta_analisis(rows, c):
+    """(analisis, no conformes) de un criterio. Cuenta determinaciones, no filas.
+
+    Una fila del LAB-REG-08 no es un analisis: es una muestra con hasta cinco
+    determinaciones de listeria y cinco de RAM, cada una sobre una unidad
+    distinta. La fila del 14/07 de @2CK26681881E*29M trae tres A, o sea tres
+    analisis de listeria, y contarla como uno subestima la evidencia justo
+    cuando alguien la esta mirando para firmar: hay 1.317 filas con listeria y
+    2.799 determinaciones detras.
+
+    El nitrito y el WPS son otra cosa: sus tres columnas son replicas de UNA
+    medicion fisicoquimica que se promedia, asi que ahi el analisis es la fila.
+    """
+    if c == "LISTERIA":
+        v = rows[LM].astype(str).apply(lambda col: col.str.strip().str.upper())
+        return int(v.isin(["A", "P"]).sum().sum()), int((v == "P").sum().sum())
+    if c == "RAM":
+        v = rows[RAM].apply(pd.to_numeric, errors="coerce")
+        return int(v.notna().sum().sum()), int((v > LIM_RAM).sum().sum())
+    return len(rows), int(rows.apply(lambda r: _falla(r, c), axis=1).sum()) if len(rows) else 0
+
+
 def historia(rows, c):
     """Estado VIGENTE de un criterio, no el peor de toda su historia.
 
@@ -953,13 +975,16 @@ def historia(rows, c):
                     "n": len(td)}
         return vacio
     malo = m.apply(lambda r: _falla(r, c), axis=1)
-    cuenta = {"n": len(m), "n_mal": int(malo.sum())}
+    _n, _nm = cuenta_analisis(m, c)
+    cuenta = {"n": _n, "n_mal": _nm, "n_muestras": len(m)}
+    _un = "analisis" if c in ("LISTERIA", "RAM") else "medicion(es)"
     if not malo.any():
         return {**vacio, **cuenta, "estado": "CONFORME",
-                "txt": f"{c.title()} conforme en {len(m)} muestra(s)"}
+                "txt": f"{c.title()} conforme en {_n} {_un}"
+                       + (f" de {len(m)} muestra(s)" if len(m) != _n else "")}
     ult = m[malo].iloc[-1]
     post = m[m["_FECHA"] > ult["_FECHA"]]
-    de_n = f" ({int(malo.sum())} de {len(m)} muestra(s) analizada(s))"
+    de_n = f" ({_nm} de {_n} {_un} en {len(m)} muestra(s))"
     if len(post) and not post.apply(lambda r: _falla(r, c), axis=1).any():
         obs = " / ".join(sorted({str(v).strip() for v in post["OBSERVACIÓN"].dropna()}))[:60]
         return {**cuenta, "estado": "REMUESTREO CONFORME",
@@ -1317,8 +1342,8 @@ for l in universo:
                 # cuantas de las posteriores midieron cada criterio: "conforme" sin el
                 # tamano de la evidencia no alcanza para decidir una firma
                 _det = "; ".join(
-                    f"{c.title()} conforme en {len(mide(_post, c))} de {len(_post)}"
-                    for c in sorted(mp_crit))
+                    f"{c.title()} conforme en {cuenta_analisis(mide(_post, c), c)[0]} "
+                    f"analisis" for c in sorted(mp_crit))
                 propuestas.append(
                     f"Materia prima: el producto terminado tiene {len(_post)} muestra(s) "
                     f"posterior(es) al {mp_falla:%d/%m/%Y} y {_det}, que es lo que la "
