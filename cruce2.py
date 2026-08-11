@@ -130,6 +130,15 @@ def carga_lab(f):
     _MP_CRUDAS.append(d[d["TIPO "].astype(str).str.strip().str.upper().str.startswith("MP")
                         & d["LOTE ORIGEN"].notna()].assign(_FUENTE=hojas[0]))
     d = d[d["LOTE SW"].notna()].copy()
+    # Las filas TIPO=PRUEBAS son ensayos del laboratorio, no producto que se
+    # despache: no deben bloquear ni liberar nada. Se descarta lo que dice
+    # PRUEBAS en vez de exigir que diga PT, para que una fila con el tipo en
+    # blanco o con un valor nuevo no desaparezca del cruce sin que nadie lo note.
+    _pr = d["TIPO "].astype(str).str.strip().str.upper().eq("PRUEBAS")
+    if _pr.any():
+        print(f"      ({int(_pr.sum())} filas TIPO=PRUEBAS omitidas: son ensayos, "
+              "no producto despachable)")
+        d = d[~_pr].copy()
     cols = list(d.columns)
 
     # El bloque fisicoquimico va %SAL, %H, WPS, NITRITO, cada uno con sus
@@ -1570,7 +1579,14 @@ res = res.sort_values(["ESTADO", "EN STOCK", "LOTE"],
 # Un codigo pegado sin sufijo sigue resolviendo contra todas sus unidades, que
 # es lo correcto: sin el sufijo no hay con que precisar.
 bat = []
+_sin_forma = 0
 for b, g in lab.groupby("_U"):
+    # El laboratorio a veces anota un correlativo ('099', '107') en la columna del
+    # lote. No es un lote y no puede tener veredicto: sin este filtro aparecian en
+    # el listado de bloqueados como si fueran producto.
+    if len(b.split("*")[0]) < MIN_LOTE:
+        _sin_forma += 1
+        continue
     rb, _ = evalua(g)
     hb = {c: historia(g, c) for c in CRIT}
     causas_b = [c for c in CRIT if hb[c]["estado"] == "NO CONFORME"]
@@ -1623,6 +1639,9 @@ for b, g in lab.groupby("_U"):
         "LOTE BASE EN STOCK": base,
     })
 bats = pd.DataFrame(bat).sort_values("BATCH (normalizado)")
+if _sin_forma:
+    print(f"  ({_sin_forma} codigos del laboratorio sin forma de lote omitidos del "
+          "veredicto: son correlativos, no lotes)")
 print(f"Veredicto por batch: {len(bats)} batches con resultado | "
       + " ".join(f"{k}={v}" for k, v in bats['ESTADO'].value_counts().items()))
 

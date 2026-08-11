@@ -111,6 +111,12 @@ Todas se descubrieron rompiendo algo. No las deshagas.
   bloqueadas por un batch que falló, sin poder separar las conformes.
 - **La clave es el código normalizado, no la etiqueta visible.** 38 de 545 filas
   repetían etiqueta.
+- **`TIPO = PRUEBAS` son ensayos del laboratorio, no producto despachable.** No bloquean ni
+  liberan: se descartan al cargar. Se filtra por lo que dice `PRUEBAS`, no exigiendo que
+  diga `PT`, para que una fila con el tipo en blanco no desaparezca sin que nadie lo note.
+  Y el laboratorio a veces anota un correlativo (`099`, `107`) en la columna del lote:
+  esos no tienen forma de lote y quedan fuera del veredicto, o aparecen en el listado de
+  bloqueados como si fueran producto.
 - **El sufijo `*NNL` NO es descartable, aunque se creyó que sí durante meses.** Es semana
   y turno de producción —coincide con la semana ISO de la fecha en el 98% de las muestras—
   y cada uno lleva su propio `LOTE JULIANO`. `@2CK26621761E*28V`, `*29L` y `*29W` son el 10,
