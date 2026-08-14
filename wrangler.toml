@@ -1,0 +1,14 @@
+# Configuracion del despliegue en Cloudflare.
+#
+# El Worker se llama igual que el del dashboard a proposito: si el nombre no
+# calza, "wrangler deploy" no actualiza este sitio, crea otro Worker aparte y
+# la pagina publicada se queda como estaba.
+#
+# No hay entrypoint de JavaScript: el sitio es un solo HTML estatico que habla
+# directo con Supabase desde el navegador. Un Worker con [assets] y sin "main"
+# solo sirve archivos, que es exactamente lo que se necesita.
+name = "bloqueos"
+compatibility_date = "2026-08-14"
+
+[assets]
+directory = "./web"
