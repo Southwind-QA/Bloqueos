@@ -354,6 +354,9 @@ def destino_restringido(l):
     Devuelve "EE.UU.", "Costa Rica", "" (ningun destino restringido) o None si no
     hay con que determinarlo. None no equivale a "": sin informacion el criterio
     se aplica igual.
+
+    Es el destino del LOTE, resuelto hacia lo estricto. Para el reparto caja por
+    caja esta _CAJAS_DEST.
     """
     if l is None or l not in _cli.index:
         return None
@@ -363,6 +366,56 @@ def destino_restringido(l):
     if US_CLI.search(r["cli"]) or US_PROD.search(r["nom"]):
         return "EE.UU."
     return ""
+
+
+# ---- reparto de cajas por destino DENTRO del mismo lote
+# Resolver el lote hacia lo estricto es correcto para decidir si el criterio aplica,
+# pero deja invisible algo que hace falta para firmar: una firma para Nacional no
+# alcanza al lote, y sin embargo alcanza a las cajas que van a Nacional.
+#
+# Y aca el dato existe, a diferencia de la letra de batch: Fishken registra el
+# CLIENTE caja por caja. Que no se pueda separar por batch de ahumado no significa
+# que no se pueda separar por destino.
+def _destino_fila(cli, nom):
+    if CR_CLI.search(cli):
+        return "Costa Rica"
+    if US_CLI.search(cli) or US_PROD.search(nom):
+        return "EE.UU."
+    return ""
+
+
+_dest_caja = pd.Series(
+    [_destino_fila(str(c), str(n)) for c, n in zip(
+        stock["CLIENTE"].fillna("").astype(str),
+        stock["NOMBRE PRODUCTO"].fillna("").astype(str))],
+    index=stock.index)
+# una fila de stock es una caja
+_CAJAS_DEST = {l: g.value_counts().to_dict() for l, g in _dest_caja.groupby(stock["_L"])}
+_mixtos = [l for l, d in _CAJAS_DEST.items() if len(d) > 1]
+if _mixtos:
+    print(f"  destino: {len(_mixtos)} lote(s) tienen cajas de distinto destino en el mismo "
+          f"lote ({sum(sum(_CAJAS_DEST[l].values()) for l in _mixtos)} cajas). El estado del "
+          "lote se resuelve hacia lo estricto; el reparto va en la columna CAJAS POR DESTINO")
+
+
+def nombre_destino(d):
+    """Como se lee un destino en pantalla. "" no es 'sin dato': es 'sin restriccion'."""
+    return d or "sin destino restringido"
+
+
+def reparto_destino(clave, mercados=()):
+    """(texto del reparto, cajas que cubre la firma, cajas totales) de un lote.
+
+    Sin stock devuelve ("", 0, 0). Sin mercados la firma vale para todo, asi que
+    cubre todas.
+    """
+    d = _CAJAS_DEST.get(clave) or {}
+    if not d:
+        return "", 0, 0
+    txt = "; ".join(f"{nombre_destino(k)}: {v} caja(s)"
+                    for k, v in sorted(d.items(), key=lambda x: (-x[1], x[0])))
+    cub = sum(v for k, v in d.items() if cubre(mercados, k)[0])
+    return txt, cub, sum(d.values())
 
 
 lab["_LINEA"] = [_linea_muestra(i, l) for i, l in enumerate(lab["_L"])]
@@ -800,16 +853,18 @@ else:
 LEVANTA = {"APH": {"LISTERIA", "RAM"}}
 
 
-def cubre_destino(mercados, clave):
-    """Si una firma para ciertos mercados alcanza al destino de este lote.
+def cubre(mercados, d):
+    """Si una firma para ciertos mercados alcanza a UN destino concreto.
 
     Liberar para Nacional no es liberar para Echo Falls. Sin mercados anotados
     la firma vale para todo, que es como se firmaba antes.
+
+    Se separa de cubre_destino para poder preguntarlo caja por caja sin repetir
+    la regla: la unica definicion de que mercado cubre que destino vive aca.
     """
     if not mercados:
         return True, ""
     m = {x.strip().upper() for x in mercados if str(x).strip()}
-    d = destino_restringido(clave)
     if d == "EE.UU." and not ({"USA", "EEUU", "EE.UU."} & m):
         return False, "el destino es EE.UU. y la firma no lo cubre"
     if d == "Costa Rica" and not ({"COSTA RICA", "EXPORTACION", "EXPORTACIÓN"} & m):
@@ -818,6 +873,11 @@ def cubre_destino(mercados, clave):
         return False, "no se pudo determinar el destino, asi que no se puede acreditar "\
                       "que la firma lo cubra"
     return True, ""
+
+
+def cubre_destino(mercados, clave):
+    """Si una firma alcanza al destino del LOTE, resuelto hacia lo estricto."""
+    return cubre(mercados, destino_restringido(clave))
 
 
 def firmada(clave, rows_lab, causas_vivas=()):
@@ -848,8 +908,18 @@ def firmada(clave, rows_lab, causas_vivas=()):
     merc = [x for x in str(d.get("MERCADOS", "") or "").split("/") if x.strip()]
     ok, por_que = cubre_destino(merc, clave)
     if not ok:
-        return None, (f"Liberacion firmada {d['ID']} para {'/'.join(merc)}: no aplica aqui "
-                      f"porque {por_que}. Sigue bloqueado para este destino.")
+        # el lote se resuelve hacia lo estricto, pero decir solo "no aplica aqui"
+        # esconde que la firma SI alcanza a parte del stock. El cliente esta
+        # registrado caja por caja: se puede decir cuantas, y hace falta decirlo.
+        rep, cub, tot = reparto_destino(clave, merc)
+        detalle = ""
+        if cub and cub < tot:
+            detalle = (f" Alcanza a {cub} de {tot} caja(s) del lote ({rep}): las otras "
+                       f"{tot - cub} son las que la firma no cubre. Separarlas es posible "
+                       "-el cliente esta por caja- pero el estado del lote muestra lo mas "
+                       "estricto y esa separacion la decide Calidad.")
+        return None, (f"Liberacion firmada {d['ID']} para {'/'.join(merc)}: no libera el lote "
+                      f"porque {por_que}.{detalle}")
 
     # ---- alcance por tratamiento
     trat = str(d.get("TRATAMIENTO", "") or "").strip().upper()
@@ -958,7 +1028,7 @@ def cuenta_analisis(rows, c):
     return len(rows), int(rows.apply(lambda r: _falla(r, c), axis=1).sum()) if len(rows) else 0
 
 
-def historia(rows, c):
+def historia(rows, c, remuestrea=True):
     """Estado VIGENTE de un criterio, no el peor de toda su historia.
 
     Un resultado reprobado deja de estar vigente solo si despues hay muestras que
@@ -969,6 +1039,12 @@ def historia(rows, c):
 
     Un re-muestreo conforme NO libera por si solo: deja el lote como candidato y
     la decision la firma Calidad.
+
+    Con remuestrea=False la reprobacion no caduca nunca por muestras posteriores.
+    Es lo que corresponde a la MATERIA PRIMA: ahi el codigo de lote es del
+    proveedor y cubre varios pallets y hasta varias recepciones, asi que una
+    muestra posterior conforme es OTRA unidad, no la misma vuelta a analizar
+    (ver el comentario de MP_ESTADO).
     """
     m = mide(rows, c).sort_values("_FECHA")
     # n y n_mal son el tamano de la evidencia: "PRESENCIA" no dice lo mismo si fue
@@ -994,7 +1070,7 @@ def historia(rows, c):
     ult = m[malo].iloc[-1]
     post = m[m["_FECHA"] > ult["_FECHA"]]
     de_n = f" ({_nm} de {_n} {_un} en {len(m)} muestra(s))"
-    if len(post) and not post.apply(lambda r: _falla(r, c), axis=1).any():
+    if remuestrea and len(post) and not post.apply(lambda r: _falla(r, c), axis=1).any():
         obs = " / ".join(sorted({str(v).strip() for v in post["OBSERVACIÓN"].dropna()}))[:60]
         return {**cuenta, "estado": "REMUESTREO CONFORME",
                 "txt": (f"{_texto(ult, c)} el {ult['_FECHA']:%d/%m/%Y}{de_n}, luego {len(post)} "
@@ -1032,21 +1108,44 @@ def resume(rows):
 
 
 # ------------------------------------------------- estado de cada materia prima
-# Se evalua con la misma regla de vigencia que el producto terminado: un resultado
-# reprobado deja de estar vigente solo si despues hay muestras de ESA materia prima
-# que vuelven a medir ESE criterio y salen conformes.
+# Aca la regla de vigencia NO es la del producto terminado, y confundirlas liberaba
+# producto con evidencia que no existe.
+#
+# En el producto terminado el flujo es fallar, tratar y re-muestrear LA MISMA cosa,
+# asi que una muestra posterior conforme dice algo del lote que fallo. En la materia
+# prima no: el codigo es el LOTE DEL PROVEEDOR, y cubre varios pallets y hasta varias
+# recepciones distintas. Una muestra posterior conforme con el mismo codigo es OTRA
+# unidad, no la misma vuelta a analizar. Y una materia prima desviada por listeria no
+# se re-muestrea nunca: se descarta o se decide sobre ella.
+#
+# Los cuatro casos que el motor leia como re-muestreo lo dejan a la vista:
+#   26060014  P el 12/06 y A el 15/06, pero el PRO-REG-46 trae dos recepciones con
+#             ese lote -pallets 2532/2533/2536 el 11/06 y 2590/2592/2595 el 15/06-
+#             con distinta fecha de elaboracion del proveedor
+#   26050004  las dos muestras son del MISMO dia, codigos 1292 (P) y 1293 (A)
+#   25100013  P el 16/10 y dos filas A el 20/10, que es la fecha de entrada a
+#             produccion de los pallets 819 y 820 de esa misma recepcion
+# Es la trampa de la letra de batch otra vez: un conforme de otra unidad no cubre
+# el incumplimiento de la que fallo. Lo unico que cierra un bloqueo de materia prima
+# es el resultado propio del producto elaborado, o una decision firmada.
 CRIT_MP = ("LISTERIA", "RAM")
 MP_ESTADO = {}
 for _l, _g in mp.groupby("_L"):
-    MP_ESTADO[_l] = {c: historia(_g, c) for c in CRIT_MP}
+    MP_ESTADO[_l] = {c: historia(_g, c, remuestrea=False) for c in CRIT_MP}
 _mp_nc = [k for k, v in MP_ESTADO.items()
           if any(x["estado"] == "NO CONFORME" for x in v.values())]
-_mp_rem = [k for k, v in MP_ESTADO.items()
-           if k not in _mp_nc and any(x["estado"] == "REMUESTREO CONFORME" for x in v.values())]
+# se sigue contando lo que ANTES se leia como re-muestreo, para que el hallazgo no
+# desaparezca en silencio si manana el registro cambia de convencion
+_mp_rem = [k for k, _g in mp.groupby("_L")
+           if any(historia(_g, c)["estado"] == "REMUESTREO CONFORME" for c in CRIT_MP)]
 if len(mp):
     _sin46 = [k for k in MP_ESTADO if k not in PROV_46]
     print(f"  materias primas: {len(mp)} muestras sobre {len(MP_ESTADO)} lotes; "
-          f"{len(_mp_nc)} no conformes, {len(_mp_rem)} con re-muestreo conforme")
+          f"{len(_mp_nc)} no conformes")
+    if _mp_rem:
+        print(f"  {len(_mp_rem)} lote(s) de MP tienen una muestra posterior conforme con el "
+              "mismo codigo: NO es un re-muestreo, es otro pallet u otra recepcion, y no "
+              "levanta el incumplimiento (" + ", ".join(sorted(_mp_rem)[:6]) + ")")
     print(f"  de los {len(MP_ESTADO)} lotes de MP del laboratorio, {len(_sin46)} no figuran "
           "en el PRO-REG-46: su bloqueo no se puede arrastrar a ningun producto")
     _prov_sin = (mp[mp["_L"].isin(_sin46)]["PROVEEDOR"].astype(str).str.strip()
@@ -1069,20 +1168,31 @@ def aplica_listeria(clave, rows_lab):
     return linea_stock(clave) != "CONGELADA" or d is None or d != ""
 
 
-def materia_prima(clave, aplica_lis=True):
+def cuantos(rows, c):
+    """'2 de 5 analisis' de un criterio, o el motivo por el que no hay numero.
+
+    Un veredicto sin el tamano de la evidencia no sirve para firmar: 'PRESENCIA'
+    no dice lo mismo si fue una muestra de una que dos de seis.
+    """
+    if not len(rows):
+        return "sin analisis"
+    n, mal = cuenta_analisis(mide(rows, c), c)
+    return f"{mal} de {n} analisis" if n else "sin analisis"
+
+
+def materia_prima(clave, rows_lab, aplica_lis=True):
     """Materias primas no conformes con las que se elaboro este lote.
 
     Devuelve (motivos, propuestas, n_bloquean, n_candidatas, fecha_falla, criterios).
 
-    Dos cosas dejan el lote en CANDIDATO A LIBERAR en vez de BLOQUEADO, porque ya
-    tienen con que liberarse y lo unico que falta es la firma:
+    Una sola cosa deja el lote en CANDIDATO A LIBERAR aca: que el criterio que fallo
+    haya sido listeria y al producto elaborado no le aplique, por ser linea congelada
+    sin destino EE.UU. ni Costa Rica.
 
-      - la materia prima se re-muestreo conforme despues;
-      - el criterio que fallo fue listeria y al producto elaborado no le aplica,
-        por ser linea congelada sin destino EE.UU. ni Costa Rica.
-
-    El tercer caso -que el producto terminado tenga resultado propio conforme
-    posterior- se resuelve fuera, porque necesita las muestras del producto.
+    El otro caso -que el producto terminado tenga resultado propio conforme
+    posterior- se resuelve fuera, porque necesita las muestras del producto. Y ese
+    es el unico camino real: la materia prima no se vuelve a analizar, asi que su
+    incumplimiento no caduca solo (ver MP_ESTADO).
     """
     if not MP_DE_SW:
         return [], [], 0, 0, pd.NaT, set()
@@ -1097,7 +1207,6 @@ def materia_prima(clave, aplica_lis=True):
             continue
         prov = PROV_46.get(p, "")
         malos = [c for c in CRIT_MP if est[c]["estado"] == "NO CONFORME"]
-        rems = [c for c in CRIT_MP if est[c]["estado"] == "REMUESTREO CONFORME"]
         etq = f"MP {p}" + (f" ({prov})" if prov else "")
         exime = [c for c in malos if c == "LISTERIA" and not aplica_lis]
         malos = [c for c in malos if c not in exime]
@@ -1105,8 +1214,20 @@ def materia_prima(clave, aplica_lis=True):
             nb += 1
             crit |= set(malos)
             motivos.append(f"{etq}: " + "; ".join(est[c]["txt"] for c in malos))
-            propuestas.append(f"{etq}: NO LIBERABLE - la materia prima mantiene "
-                              f"{', '.join(malos)} sin re-muestreo conforme posterior")
+            # el numero de los dos lados: lo que fallo en la materia prima y como
+            # salio despues el producto que se hizo con ella. Es lo que permite
+            # decidir, y sin eso la pantalla solo repite que sigue bloqueado
+            comp = "; ".join(
+                f"{c.title()} - materia prima: {est[c]['n_mal']} de {est[c]['n']} "
+                f"analisis; producto terminado: {cuantos(rows_lab, c)}" for c in malos)
+            # decir "sin re-muestreo conforme posterior" mandaba a esperar una muestra
+            # que no va a llegar nunca: la materia prima desviada no se vuelve a
+            # analizar. Lo que corresponde es decir con que SI se cierra.
+            propuestas.append(
+                f"{etq}: NO LIBERABLE - la materia prima entro con "
+                f"{', '.join(malos)}. La materia prima no se vuelve a analizar, asi que "
+                "esto lo cierra el resultado propio del producto elaborado en ese mismo "
+                f"criterio, o una decision firmada. {comp}")
             for c in malos:
                 if pd.notna(est[c]["falla"]) and (pd.isna(falla) or est[c]["falla"] > falla):
                     falla = est[c]["falla"]
@@ -1118,12 +1239,6 @@ def materia_prima(clave, aplica_lis=True):
                               "el producto es de linea congelada sin destino EE.UU. ni "
                               "Costa Rica, donde el criterio no se exige. Requiere firma "
                               "de Calidad.")
-        elif rems:
-            nc += 1
-            motivos.append(f"{etq}: " + "; ".join(est[c]["txt"] for c in rems))
-            propuestas.append(f"{etq}: LIBERABLE segun lab - la materia prima tiene "
-                              f"re-muestreo conforme posterior en {', '.join(rems)}. "
-                              "Requiere firma de Calidad.")
     return motivos, propuestas, nb, nc, falla, crit
 
 
@@ -1209,6 +1324,40 @@ def sospechoso(txt):
     t = str(txt).strip()
     return bool(re.search(r"\s", t) or re.search(r"PRUEBA|TEST", t, re.I) or not re.search(r"\d", t))
 
+def veredicto_ope(crit, f, rows_lab):
+    """(libera, texto) de un bloqueo declarado, evaluado contra el lab posterior.
+
+    Devuelve el veredicto sin el encabezado ni la aclaracion del motivo, para que
+    quien lo llama los agregue una sola vez y no haya que repetirlos en cada rama.
+    """
+    if not crit:
+        return False, ("NO LIBERABLE - el motivo no se mide en laboratorio; solo lo "
+                       "cierra una decision firmada")
+    inf = f"criterio {', '.join(crit)} inferido del motivo declarado"
+    if pd.notna(f) and f > HOY:
+        # una fecha de bloqueo en el futuro (tipeo de anio) deja el lote bloqueado
+        # para siempre en silencio: ninguna muestra puede ser posterior
+        return False, (f"NO LIBERABLE - la fecha de bloqueo ({f:%d/%m/%Y}) es futura, "
+                       "probable error de tipeo en el registro: ninguna muestra puede ser "
+                       "posterior. Corregir la fecha en " + config.ARCH_OPERATIVO)
+    if pd.isna(f):
+        return False, ("NO LIBERABLE - sin fecha de bloqueo no se puede acreditar que una "
+                       f"muestra sea posterior ({inf})")
+    rp, _post = evalua(rows_lab, desde=f)
+    malos = [txt for c in crit for mal, _fd, txt in [incumple(rp, c)] if mal]
+    faltan = [c for c in crit if incumple(rp, c)[1]]
+    if rp["n"] == 0:
+        return False, f"NO LIBERABLE - sin muestras posteriores al {f:%d/%m/%Y} ({inf})"
+    if malos:
+        return False, f"NO LIBERABLE - resultado posterior no conforme ({'; '.join(malos)})"
+    if faltan:
+        return False, (f"NO LIBERABLE - las {rp['n']} muestra(s) posterior(es) al "
+                       f"{f:%d/%m/%Y} no midieron {', '.join(faltan)} ({inf})")
+    return True, (f"LIBERABLE segun lab - {rp['n']} muestra(s) posterior(es) al "
+                  f"{f:%d/%m/%Y} conforme(s) en {', '.join(crit)} ({inf}). "
+                  "Requiere firma de Calidad.")
+
+
 filas = []
 for l in universo:
     en_stock = l in lotes_stock
@@ -1290,52 +1439,23 @@ for l in universo:
             etq = " / ".join(txts[:2])[:90] or "sin motivo escrito"
             motivos_ope.append(f"{etq} ({len(g)} registro(s)"
                                + (f", ultimo {f:%d/%m/%Y}" if pd.notna(f) else ", sin fecha") + ")")
-            enc = f"Detencion historica [{etq}]"
-            if not crit:
-                ope_pend += 1
-                propuestas_ope.append(f"{enc}: NO LIBERABLE - el motivo no se mide en "
-                                      "laboratorio; solo lo cierra una decision firmada")
-                continue
-            inf = f"criterio {', '.join(crit)} inferido del motivo declarado"
-            if pd.notna(f) and f > HOY:
-                # una fecha de bloqueo en el futuro (tipeo de anio) deja el lote
-                # bloqueado para siempre en silencio: ninguna muestra puede ser posterior
-                ope_pend += 1
-                propuestas_ope.append(f"{enc}: NO LIBERABLE - la fecha de bloqueo "
-                                      f"({f:%d/%m/%Y}) es futura, probable error de tipeo en el "
-                                      "registro: ninguna muestra puede ser posterior. Corregir "
-                                      "la fecha en " + config.ARCH_OPERATIVO)
-                continue
-            if pd.isna(f):
-                ope_pend += 1
-                propuestas_ope.append(f"{enc}: NO LIBERABLE - sin fecha de bloqueo no se puede "
-                                      f"acreditar que una muestra sea posterior ({inf})")
-                continue
-            rp, _post = evalua(rows_lab, desde=f)
-            malos = [txt for c in crit for mal, _fd, txt in [incumple(rp, c)] if mal]
-            faltan = [c for c in crit if incumple(rp, c)[1]]
-            if rp["n"] == 0:
-                ope_pend += 1
-                propuestas_ope.append(f"{enc}: NO LIBERABLE - sin muestras posteriores al "
-                                      f"{f:%d/%m/%Y} ({inf})")
-            elif malos:
-                ope_pend += 1
-                propuestas_ope.append(f"{enc}: NO LIBERABLE - resultado posterior no conforme "
-                                      f"({'; '.join(malos)})")
-            elif faltan:
-                ope_pend += 1
-                propuestas_ope.append(f"{enc}: NO LIBERABLE - las {rp['n']} muestra(s) posterior(es) "
-                                      f"al {f:%d/%m/%Y} no midieron {', '.join(faltan)} ({inf})")
-            else:
+            libera, txt = veredicto_ope(crit, f, rows_lab)
+            # el motivo escrito puede leerse al reves de lo que significa -"vida util
+            # transcurrida" no es producto vencido-, asi que la aclaracion viaja con
+            # el veredicto y no en un pie de pagina que nadie lee
+            nota = " ".join(dict.fromkeys(
+                n for n in (config.nota_del_motivo(t) for t in txts) if n))
+            if libera:
                 ope_ok += 1
-                propuestas_ope.append(f"{enc}: LIBERABLE segun lab - {rp['n']} muestra(s) "
-                                      f"posterior(es) al {f:%d/%m/%Y} conforme(s) en "
-                                      f"{', '.join(crit)} ({inf}). Requiere firma de Calidad.")
+            else:
+                ope_pend += 1
+            propuestas_ope.append(f"Detencion historica [{etq}]: {txt}"
+                                  + (f" {nota}." if nota else ""))
     propuestas += propuestas_ope
 
     # ---- materia prima: lo que estaba bloqueado antes de entrar a proceso
     motivos_mp, propuestas_mp, mp_pend, mp_cand, mp_falla, mp_crit = materia_prima(
-        l, aplica_listeria(l, rows_lab))
+        l, rows_lab, aplica_listeria(l, rows_lab))
     # El proceso -ahumado, altas presiones- es justamente lo que controla lo que
     # traia la materia prima. Si el producto ya se analizo despues y salio conforme
     # en TODO lo que la materia prima traia mal, el lote esta listo para liberarse
@@ -1359,16 +1479,20 @@ for l in universo:
                     "materia prima traia mal. Queda listo para liberar, pero no se libera "
                     "solo: la firma es de Calidad.")
             elif _ok:
+                # "no cubre LISTERIA" puede ser que nadie la midio o que salio mal
+                # otra vez, y no es lo mismo para decidir: se dice cual de las dos
+                _falta = sorted(mp_crit - _ok)
+                _por = "; ".join(f"{c.title()}: {cuantos(_post, c)}" for c in _falta)
                 propuestas.append(
                     f"Materia prima: el producto terminado dio conforme en "
                     f"{', '.join(sorted(_ok))}, pero eso no cubre "
-                    f"{', '.join(sorted(mp_crit - _ok))}, que es lo que fallo en la "
-                    "materia prima. Sigue bloqueado.")
+                    f"{', '.join(_falta)}, que es lo que fallo en la "
+                    f"materia prima ({_por} en el producto terminado). Sigue bloqueado.")
     if not mp_pend:
         # ya no bloquea: el "NO LIBERABLE" describiria el estado de la materia prima,
         # pero se lee como el veredicto del lote y lo contradice
-        propuestas_mp = [p.replace("NO LIBERABLE - la materia prima mantiene",
-                                   "La materia prima mantiene") for p in propuestas_mp]
+        propuestas_mp = [p.replace("NO LIBERABLE - la materia prima entro con",
+                                   "La materia prima entro con") for p in propuestas_mp]
     propuestas += propuestas_mp
 
     # ---- estado consolidado
@@ -1406,6 +1530,23 @@ for l in universo:
                    f"{dfirm.get('FIRMADO POR', 'sin registrar')}"
                    + (f" para {dfirm['MERCADOS']}" if pd.notna(dfirm.get("MERCADOS")) else "")
                    + (f". Evidencia: {dfirm['EVIDENCIA']}" if pd.notna(dfirm.get("EVIDENCIA")) else ""))
+    # ---- cajas de distinto destino en el mismo lote
+    # Quien va a firmar necesita saberlo ANTES: firmar solo Nacional sobre un lote
+    # con cajas a EE.UU. no libera nada, y hoy eso se descubria despues de firmar.
+    _rep, _, _tot = reparto_destino(l)
+    _mix = len(_CAJAS_DEST.get(l) or {}) > 1
+    if _mix and estado in ("BLOQUEADO", "CANDIDATO A LIBERAR"):
+        # solo la listeria depende del destino. Si lo que bloquea es RAM o nitrito, el
+        # reparto no ayuda: esos criterios se exigen en todos los mercados, y decir lo
+        # contrario mandaria a firmar una liberacion que no corresponde
+        _libres = (_CAJAS_DEST.get(l) or {}).get("", 0)
+        obs.append(
+            f"Cajas de distinto destino en el mismo lote: {_rep}. El estado se resuelve "
+            "hacia lo mas estricto, asi que una firma por mercado no libera el lote"
+            + (f". La listeria no se exige en los destinos sin restriccion: una firma "
+               f"acotada a ellos cubriria {_libres} de {_tot} caja(s), y separarlas es "
+               "posible porque el cliente esta registrado caja por caja"
+               if "LISTERIA" in _vivas and _libres else ""))
     if not en_stock and len(dets):
         obs.append("Lote con detencion vigente que NO aparece en ningun stock: "
                    "puede ser lag de informacion, producto aun en proceso, ya despachado, "
@@ -1451,6 +1592,31 @@ for l in universo:
         obs.append("Listeria PRESENCIA NO aplicada: linea congelada sin destino EE.UU. "
                    "ni Costa Rica (cliente " + " / ".join(sorted(set(
                        s["CLIENTE"].dropna().astype(str)))[:2] or ["sin dato"]) + ")")
+    # ---- el bloqueo depende SOLO del destino?
+    # La listeria es el unico criterio que el destino puede eximir: en linea congelada
+    # se exige por ir a EE.UU. o Costa Rica, y no en otros mercados. Si eso es lo unico
+    # vivo, un despacho a un destino sin restriccion no arrastra este bloqueo, y la
+    # consulta de packing list puede decirlo sin volver a derivar criterios.
+    #
+    # Se exige TODO esto, y cada condicion evita un falso positivo:
+    #   - nada declarado vivo: una detencion o un bloqueo del registro no caduca por
+    #     destino, lo cierra su propio motivo
+    #   - lo unico vivo es listeria, del laboratorio o heredado de la materia prima
+    #   - la linea no es refrigerada: ahi la listeria se exige en todos los mercados
+    #   - el lote esta marcado por destino restringido, que es lo que se estaria eximiendo
+    _vivo_lis = set(causas) | (mp_crit if mp_pend else set())
+    solo_destino = bool(
+        estado in ("BLOQUEADO", "CANDIDATO A LIBERAR")
+        and not motivos_det and not ope_pend
+        and _vivo_lis and _vivo_lis <= {"LISTERIA"}
+        and "REFRIGERADA" not in linea_l
+        and destino_restringido(l) in ("EE.UU.", "Costa Rica"))
+    if solo_destino:
+        obs.append("Bloqueo dependiente del destino: lo unico vigente es listeria y la "
+                   f"linea es {linea_l}, donde solo se exige por el destino "
+                   f"{destino_restringido(l)}. Un despacho a un mercado sin esa "
+                   "restriccion no arrastra este bloqueo, pero eso lo firma Calidad: el "
+                   "sistema no lo libera solo")
     lib_f, lib_m, lib_o = liberacion(l)
     if lib_f and (motivos_lab or motivos_det):
         obs.append(f"CONFLICTO: figura liberado el {lib_f}"
@@ -1518,6 +1684,9 @@ for l in universo:
         "LINEA": linea_l,
         "DESTINO RESTRINGIDO": (lambda d: d if d else
                                 ("sin determinar" if d is None else "no"))(destino_restringido(l)),
+        # el reparto caja por caja, que es lo que permite firmar por mercado
+        "CAJAS POR DESTINO": _rep,
+        "BLOQUEO SOLO POR DESTINO": "SI" if solo_destino else "",
         "CAUSAS LAB": ",".join(causas),
         "CAUSAS CON REMUESTREO CONFORME": ",".join(causas_rem),
         "LIBERACION DECLARADA": lib_f,

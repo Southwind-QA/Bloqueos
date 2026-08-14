@@ -78,6 +78,7 @@ for _, r in res.iterrows():
         "hrem": txt(r["HISTORIA DEL RE-MUESTREO"]),
         "libf": txt(r["LIBERACION DECLARADA"])[:10], "libm": txt(r["MERCADOS LIBERADOS"]),
         "libo": txt(r["FUENTE DE LA LIBERACION"]), "linea": txt(r["LINEA"]), "dest": txt(r["DESTINO RESTRINGIDO"]),
+        "cdest": txt(r["CAJAS POR DESTINO"]),
         "mlib": txt(r["MOTIVO DE LA LIBERACION"]), "porcrit": txt(r["ESTADO POR CRITERIO"]),
         "evid": txt(r["EVIDENCIA (ultimas muestras)"]),
         "firma": txt(r.get("FIRMADA POR", "")),
@@ -562,6 +563,13 @@ function porque(o){
     (o.dest&&o.dest!=='no'&&o.dest!=='sin determinar'?' &middot; destino '+esc(o.dest):'')+
     (o.linea.indexOf('CONGELADA')>=0&&o.linea.indexOf('REFRIGERADA')<0?
       ': no aplica nitrito'+((o.dest==='no')?' ni listeria':''):'')+'</div>';
+  // El destino del lote es el mas estricto de sus cajas. Cuando conviven varios, el
+  // reparto es lo que dice a cuantas cajas alcanzaria una firma por mercado.
+  if(o.cdest&&o.cdest.indexOf(';')>=0)
+    h+='<div class="note"><b>Cajas por destino:</b> '+esc(o.cdest)+
+      '<br><span class="mut">El estado del lote es el del destino mas estricto. Una firma '+
+      'acotada a un mercado alcanza solo a las cajas de ese destino, y el cliente esta '+
+      'registrado caja por caja.</span></div>';
   if(o.hrem) h+='<div class="note"><b>Re-muestreo conforme:</b> '+esc(o.hrem)+'</div>';
   if(o.libf) h+='<div class="note"><b>Liberacion declarada</b> el '+esc(o.libf)+
     (o.libm?' para '+esc(o.libm):'')+(o.libo?' ('+esc(o.libo)+')':'')+'</div>';

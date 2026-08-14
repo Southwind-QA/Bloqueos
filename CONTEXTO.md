@@ -41,6 +41,38 @@ este diseño evita:
 | **Detención histórica** | Declarada en el Excel `Bloqueo 2026.xlsm` con su motivo | Personas | Nunca, solo se agrega |
 | **Materia prima** | Heredado: la MP venía no conforme | El motor, vía `PRO-REG-46` | Entero, cada corrida |
 
+La materia prima tiene además una regla de vigencia **propia**: su incumplimiento no
+caduca por una muestra posterior del mismo lote, porque ese código es del proveedor y
+cubre varias unidades (ver la sección 4). Lo cierra el resultado del producto
+elaborado, o una firma.
+
+### El destino es la única dimensión separable
+
+El estado del lote se resuelve hacia **el destino más estricto**: si un cliente es de
+EE.UU., el lote entero queda marcado. Eso no cambia — es lo que decide si el criterio
+aplica. Pero deja invisible algo que hace falta para firmar: **una firma para Nacional
+no libera el lote, y sin embargo alcanza a las cajas que van a Nacional.**
+
+Y acá el dato existe, a diferencia de la letra de batch: **Fishken registra el cliente
+caja por caja.** Que no se pueda separar por batch de ahumado no significa que no se
+pueda separar por destino. Hoy hay **28 lotes con cajas de distinto destino** (13.234
+cajas); 21 bloqueados o candidatos, con 12.043 cajas de las cuales 1.355 no tienen
+destino restringido.
+
+Dos cosas lo hacen visible, y **ninguna libera nada por sí sola**:
+
+- `CAJAS POR DESTINO` — el reparto, en el detalle del lote y en el diálogo de firma,
+  para que nadie firme "Nacional" sobre un lote mixto sin saber que no libera el lote.
+- `BLOQUEO SOLO POR DESTINO` (`lote.solo_destino`) — lo decide el **motor**, nunca el
+  navegador: derivar criterios en JavaScript sería tener la norma escrita dos veces.
+  Es verdadero solo si lo único vigente es listeria, la línea no es refrigerada —ahí se
+  exige siempre—, no hay nada declarado abierto, y el lote está marcado por EE.UU. o
+  Costa Rica. Hoy: **5 lotes, 2.621 cajas.** La consulta de packing list lo usa cuando
+  se declara el destino del despacho.
+
+Si lo que bloquea es RAM o nitrito, el reparto **no ayuda**: esos criterios se exigen en
+todos los mercados. Por eso el mensaje distingue, en vez de ofrecer el reparto siempre.
+
 Sus valores por omisión son **opuestos**, y es deliberado:
 
 - Sin resultado de laboratorio, un lote **no** está bloqueado por laboratorio.
@@ -52,6 +84,14 @@ un nitrito conforme, y uno por falta de documentación no lo levanta ninguna mue
 el laboratorio no mide eso. La traducción de motivo escrito a criterio vive en
 `config.py`, en `MOTIVOS_LAB`, y la propuesta deja dicho que el criterio se **infirió
 del texto** — a diferencia de las detenciones, donde lo declara una persona.
+
+**"Vida útil transcurrida" no es producto vencido.** Significa que se sobrepasaron los
+límites operacionales de tiempo en proceso, y lo que esa demora pone en riesgo es la
+carga microbiológica: **un RAM conforme posterior a la detención cierra el motivo**.
+Varias de esas filas lo dicen textualmente ("quedará PNC hasta el resultado del
+laboratorio"). Se leía como no medible en laboratorio, que es lo contrario. La
+aclaración viaja pegada al veredicto en pantalla, en `MOTIVOS_NOTA`: el texto del
+registro está escrito para quien ya sabe de qué se trata, y quien mira para firmar, no.
 
 Esa línea se sostiene hasta en la base de datos: el rol `motor_bloqueos` no tiene
 permiso de escritura sobre detenciones, decisiones ni criterios. Una corrida mala no
@@ -125,6 +165,17 @@ Todas se descubrieron rompiendo algo. No las deshagas.
   con unos sufijos conformes y otros no**. Contra el stock hay que seguir agregando —Fishken
   no registra el sufijo— pero cuando el packing list trae el código completo se responde por
   esa unidad.
+- **Una muestra posterior conforme de la MISMA materia prima no es un re-muestreo.**
+  El código es el lote del **proveedor**, y cubre varios pallets y varias recepciones.
+  Los cuatro casos que el motor leía como re-muestreo lo prueban: `26050004` tiene las
+  dos muestras del mismo día (códigos 1292 `P` y 1293 `A`), y `26060014` dio `P` el
+  12/06 y `A` el 15/06 con **dos recepciones distintas** en el `PRO-REG-46` bajo el
+  mismo lote (pallets 2532/2533/2536 el 11/06 y 2590/2592/2595 el 15/06, con otra
+  fecha de elaboración del proveedor). Es la trampa de la letra de batch otra vez: un
+  conforme de otra unidad no cubre el incumplimiento de la que falló. Y encima **una
+  materia prima desviada por listeria no se re-muestrea nunca**: se descarta o se
+  decide sobre ella. Lo único que cierra un bloqueo de materia prima es el resultado
+  propio del producto elaborado en ese mismo criterio, o una decisión firmada.
 - **El lote de proveedor es otra convención, no la del lote SW.** Ahí el sufijo tras
   el guion es el pallet (`@4M1262004-VQ009F`), una celda puede traer varios lotes
   separados por `/`, y el prefijo de certificación y la confusión O/0 **sí** son ruido
@@ -221,6 +272,8 @@ fallar en silencio.
 | `cmd` cortaba el `.env` en el `#` de la clave | `failed to resolve host motor_bloqueos.xxxx`: psycopg tomaba el usuario como servidor | Un error de conexión rara vez nombra su causa. Ahora el `.env` lo interpreta Python y `revisar` descompone la cadena |
 | La consulta de packing list no miraba la detención histórica | Al incorporarlo: un lote bloqueado por correo con laboratorio conforme salía LIBERADO | La consulta resuelve contra el lab; cada origen nuevo hay que llevarlo **también** ahí, o el agujero queda justo en la pregunta que más se hace |
 | Leer las filas sin estado como si no existieran | 18.221 cajas figuraban liberadas, 11.551 de ellas declaradas por listeria | Una columna vacía es un dato: hay que averiguar qué convención la deja vacía antes de ignorarla |
+| Leer "vida útil transcurrida" como producto vencido | Lo dijo Calidad revisando los mensajes en pantalla | Un motivo escrito a mano hay que traducirlo con quien lo escribe, no inferirlo del castellano. El motor decía "no se mide en laboratorio" justo del motivo que **solo** se cierra con laboratorio |
+| Aplicar la regla de re-muestreo del producto a la materia prima | Calidad dijo "nunca haremos un re-muestreo a una materia prima desviada por listeria", y el `PRO-REG-46` lo confirmó: eran otros pallets | **Un veredicto correcto por un argumento falso sigue siendo un error.** No movió ni un lote —los 9 afectados ya se sostenían con los análisis del producto terminado— pero el motor le mostraba a quien firma una evidencia inexistente, y el próximo caso sin cobertura del terminado se habría liberado solo |
 
 ---
 
@@ -243,12 +296,27 @@ fallar en silencio.
 5. **24 filas con fecha de bloqueo futura** (hasta 16/07/2027), probable tipeo de año.
    Quedan bloqueadas sin forma de liberarse, porque ninguna muestra puede ser posterior.
    El motor lo avisa por consola y en la propuesta; la corrección va en el xlsm.
+6. **2.109 de las 4.326 filas abiertas del xlsm no tienen `FECHA BLOQUEO`**, y sin
+   fecha no se puede acreditar que una muestra sea posterior: el motor no puede
+   proponer nada. Es hoy el cuello de botella más grande, más que los criterios. Se
+   vio al corregir "vida útil": de 121 filas de ese motivo, **108 no tienen fecha**, así
+   que la corrección solo alcanzó a mover un lote. Poner esas fechas libera producto
+   sin cambiar una sola regla.
 
 **Trabajo pendiente:**
 
 - Aplicar a mano en el SQL Editor, antes de la próxima carga a Postgres:
-  `20260807140000_bloqueos_materia_prima.sql`. (Las de `motivo_operativo`, `wps` y sus
-  versiones de criterios ya se aplicaron el 07/08/2026.)
+  `20260811150000_bloqueos_cajas_por_destino.sql` (verificado el 11/08: las columnas
+  `cajas_por_destino` y `solo_destino` **no están todavía**, y el cargador ya las
+  escribe). La de `criterio_vida_util_y_mp` ya se aplicó ese mismo día. Las de `motivo_operativo`, `wps`, `materia_prima` y las versiones de
+  criterios del 07/08 ya están aplicadas: verificado el 11/08/2026 contra la base.
+- **Cambiar `huella_criterios()` sin registrar la versión en la base rompe la carga, en
+  silencio para quien mira el sitio.** Pasó: el renombre a "detención histórica"
+  (`d67625f`, 10/08 18:03) cambió la huella siete minutos después de la última corrida
+  que entró (la 9, 17:56). `cargar_supabase.py` abortó en cada intento posterior y el
+  sitio siguió mostrando "Registro operativo" durante un día. El candado es correcto
+  —evita atribuir datos a una norma que no se aplicó— pero **cada cambio de huella
+  necesita su migración en el mismo commit**.
 - **36 lotes de materia prima no figuran en ningún `PRO-REG-46`** (Ventisqueros 11,
   Cooke 9, Australis 9, Agrosuper 3, Antártica 2, Lo Boza 2). Su bloqueo no se puede
   arrastrar a ningún producto. Ya no es falta de archivos —se cargan 2023 a 2026— sino

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Sube el resultado del motor a Postgres.
 
-    set BLOQUEOS_DB_URL=postgresql://motor_bloqueos:<clave>@<host>:5432/postgres
     python cargar_supabase.py
+
+La cadena de conexion sale de BLOQUEOS_DB_URL, y config la carga del .env al
+importarse, asi que no hay que exportar nada a mano.
 
 Escribe SOLO las tablas derivadas. Lo declarado -detenciones, decisiones,
 criterios- no se toca: el rol motor_bloqueos ni siquiera tiene permiso, asi que
@@ -121,12 +123,13 @@ with psycopg.connect(URL, autocommit=False) as cx:
                  causas_remuestreo, motivo_lab, motivo_detencion, motivo_operativo,
                  operativo_bloquea, motivo_mp, mp_bloquea, motivo_liberacion,
                  por_criterio, evidencia, historia_remuestreo, linea, destino_restringido,
+                 cajas_por_destino, solo_destino,
                  liberacion_declarada, mercados_liberados, fuente_liberacion, en_stock,
                  bodegas, productos, clientes, cajas, kg, piezas,
                  batches_con_resultado, batches_no_conformes, n_muestras, ultima_muestra,
                  wps, propuesta, observaciones, corrida_id)
                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             [(txt(r["LOTE"]), txt(r["LOTE (normalizado)"]), txt(r["ESTADO"]),
               txt(r["ORIGEN DEL BLOQUEO"]), lista(r["CAUSAS LAB"]),
               lista(r["CAUSAS CON REMUESTREO CONFORME"]), txt(r["MOTIVO - LABORATORIO"]),
@@ -138,6 +141,7 @@ with psycopg.connect(URL, autocommit=False) as cx:
                   p.split("=") for p in str(txt(r["ESTADO POR CRITERIO"]) or "").split("; ") if "=" in p)),
               txt(r["EVIDENCIA (ultimas muestras)"]), txt(r["HISTORIA DEL RE-MUESTREO"]),
               txt(r["LINEA"]), txt(r["DESTINO RESTRINGIDO"]),
+              txt(r["CAJAS POR DESTINO"]), txt(r["BLOQUEO SOLO POR DESTINO"]) == "SI",
               fecha(r["LIBERACION DECLARADA"]), sep(r["MERCADOS LIBERADOS"], "/"),
               txt(r["FUENTE DE LA LIBERACION"]), txt(r["EN STOCK"]) == "SI",
               sep(r["BODEGA(S)"]), sep(r["PRODUCTOS"]), sep(r["CLIENTE(S)"]),

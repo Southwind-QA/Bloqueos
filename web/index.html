@@ -268,7 +268,18 @@ todavía, y eso hay que verificarlo antes de mover el producto.</p>
 que pegaste. <i>Lote base</i> es que pegaste el lote sin el detalle del día, así que se
 responde por todos sus días juntos. <i>Aproximado</i> es que ese código no está y se
 muestra el más parecido, solo como referencia: no libera nada.</p></div></details>
-        <label class="fld" for="pl">Contenido</label>
+        <label class="fld" for="pl-dest">Destino del despacho</label>
+        <select id="pl-dest" onchange="correr()">
+          <option value="">No lo sé / varios destinos</option>
+          <option value="EE.UU.">EE.UU.</option>
+          <option value="Costa Rica">Costa Rica</option>
+          <option value="libre">Otro mercado (sin restricción de listeria)</option>
+        </select>
+        <p class="lead" style="margin:6px 0 0">Un despacho tiene un destino, y la listeria solo
+          se exige en línea congelada cuando va a EE.UU. o Costa Rica. Decirlo acá no libera
+          nada: marca las líneas cuyo bloqueo <b>solo</b> viene del destino, para que Calidad
+          decida. En blanco se responde con el criterio más estricto, como siempre.</p>
+        <label class="fld" for="pl" style="margin-top:12px">Contenido</label>
         <textarea id="pl" placeholder="Pega aquí el packing list..."></textarea>
         <div class="acts">
           <button class="btn" onclick="correr()">Analizar</button>
@@ -811,7 +822,7 @@ window.leerCorreo = () => {
       'igual a la del evento, así que puede ser la del proceso y no la del envío.</div>':'')+
     `<div class="note" style="margin:12px 0 8px">${filas.length} fila(s) propuesta(s). `+
     `Criterios de liberación: <b>${hit[2].join(', ')||'ninguno, no se cierra con laboratorio'}</b>. `+
-    'Todo es editable.</div>'+
+    'Todo es editable; las fechas se pueden escribir como 19/08/2026.</div>'+
     '<div class="tw"><table><thead><tr><th>ID</th>'+campos.map(c=>`<th>${c[1]}</th>`).join('')+
     '</tr></thead><tbody>'+filas.map((f,i)=>`<tr><td class="mono">${esc(f.id)}</td>`+
     campos.map(c=>`<td><input data-i="${i}" data-c="${c[0]}" value="${esc(f[c[0]])}" `+
@@ -827,8 +838,27 @@ window.limpiarCorreo = () => {
   $('det-txt').value=''; $('det-prop').innerHTML=''; $('det-aviso').textContent='';
   $('det-guardar').hidden=true;
 };
+// Se leen los campos del DOM en vez de confiar en lo que fue sincronizando
+// oninput: si por lo que sea un campo no disparo el evento, la validacion
+// rechazaba una fila que en pantalla se ve completa, y no hay como adivinarlo.
+function leerTabla(){
+  document.querySelectorAll('#det-prop input[data-i]').forEach(i => {
+    const f = PROP_DET[Number(i.dataset.i)];
+    if(f) f[i.dataset.c] = i.value.trim();
+  });
+  // Las fechas se escriben como 19/08/2026 y la base las quiere 2026-08-19. Lo
+  // que ya viene en ese formato no se toca: pasarlo por el convertidor leeria
+  // 2026-08-19 como dia 26 y lo mandaria al 2019.
+  PROP_DET.forEach(f => {
+    for(const c of ['fecha_correo', 'fecha_evento']){
+      if(f[c] && !/^\d{4}-\d{2}-\d{2}$/.test(f[c])) f[c] = fechaISO(f[c]) || f[c];
+    }
+  });
+}
+
 window.guardarDet = async () => {
   if(!PROP_DET.length) return;
+  leerTabla();
   const faltan = PROP_DET.filter(f => !f.fecha_correo || !f.fecha_evento || !f.lote);
   if(faltan.length) return alert('Faltan datos obligatorios en '+faltan.length+' fila(s): '+
     'lote, fecha del correo y fecha del evento. La fecha del evento decide qué muestras '+
@@ -879,9 +909,16 @@ window.firmar = (tipo, ref) => {
   const d = tipo === 'detencion' ? DET.find(x => x.id === ref) : null;
   FIRMA = {tipo, ref};
   const evid = o ? (o.evidencia || '') : '';
+  // Un lote puede tener cajas de distinto destino, y el estado se resuelve hacia lo
+  // estricto: firmar solo Nacional sobre un lote con cajas a EE.UU. no libera nada.
+  // Hay que decirlo ANTES de firmar, no despues.
+  const mixto = tipo === 'lote' && o.cajas_por_destino && o.cajas_por_destino.includes(';');
   const quePasa = tipo === 'lote'
     ? `El lote <b>${esc(o.lote)}</b> pasa a LIBERADO POR DECISION en el próximo cruce`
       + (o.cajas ? `, con sus <b>${nf(o.cajas)} cajas</b>` : '') + '.'
+      + (mixto ? `<br><b>Ojo:</b> este lote tiene cajas de distinto destino — `+
+         `${esc(o.cajas_por_destino)}. Si acotas los mercados, la firma no libera el `+
+         `lote: el estado se resuelve hacia el destino más estricto.` : '')
     : `La detención <b>${esc(d.id)}</b> del lote <b>${esc(d.lote)}</b> deja de bloquear.`;
   abrir('Firmar', yo.nombre, null,
     `<div class="aviso"><span>&#9888;</span><div><b>Esto no se puede deshacer.</b> `+
@@ -1057,6 +1094,9 @@ const causasDe = o => (o.causas||[]).concat(o.motivo_detencion?['DETENCION']:[])
 // correo con laboratorio conforme saldria LIBERADO en la consulta de packing list.
 const opesDe = q => q && q.length>=MIN
   ? L.filter(o=>(o.motivo_operativo||o.motivo_mp) && emparenta(o.normalizado, q)) : [];
+// El lote al que pertenece un codigo del packing list, para leer lo que el motor
+// decidio sobre el: el reparto de cajas y si el bloqueo depende solo del destino.
+const loteDe = q => q && q.length>=MIN ? L.find(o=>emparenta(o.normalizado, q)) : null;
 
 function porque(o){
   let h = '';
@@ -1077,6 +1117,13 @@ function porque(o){
   if(o.historia_remuestreo) h += `<div class="note"><b>Re-muestreo:</b> ${esc(o.historia_remuestreo)}</div>`;
   if(o.linea) h += `<div class="note">Línea ${esc(o.linea)}`+
     (o.destino_restringido && o.destino_restringido!=='no' ? ` · destino ${esc(o.destino_restringido)}`:'')+'</div>';
+  // El destino del lote es el más estricto de sus cajas. Cuando conviven varios, el
+  // reparto es lo que dice a cuántas cajas alcanzaría una firma por mercado.
+  if(o.cajas_por_destino && o.cajas_por_destino.includes(';'))
+    h += `<div class="note"><b>Cajas por destino:</b> ${esc(o.cajas_por_destino)}<br>`+
+      '<span class="mut">El estado del lote es el del destino más estricto. Una firma '+
+      'acotada a un mercado alcanza solo a las cajas de ese destino, y el cliente está '+
+      'registrado caja por caja.</span></div>';
   if(o.batches_no_conformes) h += `<div class="note">Batches no conformes: ${esc(o.batches_no_conformes)}</div>`;
   if(o.observaciones) h += `<div class="note">${esc(o.observaciones)}</div>`;
   return `<div class="why">${h || '<span class="mut">Sin incumplimientos.</span>'}</div>`;
@@ -1135,7 +1182,21 @@ function detalleLinea(x){
   // Si se resolvio por unidad, su bloqueo operativo ya se muestra en la linea del
   // batch: repetir aqui el del lote entero hace parecer que tambien la alcanza.
   const porUni = x.r && x.r.nivel === 'EXACTO' && normU(x.cand).includes('*');
-  const op = choca + (porUni ? [] : (x.ops||[])).map(o=>`<div><span class="tag REGISTRO">Detención histórica</span>`+
+  // Un despacho tiene UN destino, y quien pega la lista lo sabe. Si el bloqueo depende
+  // solo de eso, decirlo aqui es la diferencia entre "no despachar" y "esto lo puede
+  // firmar Calidad para este mercado". La condicion la evaluo el motor: en el navegador
+  // no se vuelve a derivar ningun criterio.
+  const lo = loteDe(norm(x.cand));
+  const dnota = ($('pl-dest').value === 'libre' && lo && lo.solo_destino)
+    ? '<div class="note"><b>Para este destino el criterio no se exige.</b> Lo único '+
+      'vigente en este lote es listeria, y en línea congelada solo se exige para EE.UU. '+
+      'o Costa Rica. Sigue figurando bloqueado porque el estado del lote es el del '+
+      'destino más estricto: liberarlo para este mercado lo firma Calidad, el sistema '+
+      'no lo hace solo.'+
+      (lo.cajas_por_destino ? '<br><span class="mut">Cajas por destino: '+
+        esc(lo.cajas_por_destino)+'</span>' : '')+'</div>'
+    : '';
+  const op = choca + dnota + (porUni ? [] : (x.ops||[])).map(o=>`<div><span class="tag REGISTRO">Detención histórica</span>`+
     (o.normalizado!==norm(x.cand)?`<span class="mono">${esc(o.lote)}</span> `:'')+esc(o.motivo_operativo)+
     (o.operativo_bloquea?'':' <span class="mut">(con re-muestreo conforme posterior)</span>')+'</div>').join('');
   if(!x.r) return '<div class="why">'+op+'<div><b>El laboratorio aún no tiene resultado para este lote.</b></div>'+

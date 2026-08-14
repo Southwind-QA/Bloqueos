@@ -13,6 +13,15 @@ Dos motivos para que esto no viva dentro de los scripts:
    un cambio de norma sea visible en el diff.
 """
 import os
+import re
+
+import leer_env
+
+# El .env se carga aca, al importar config, porque config lo importa todo. Asi
+# "python cargar_supabase.py" a mano encuentra la cadena de conexion igual que
+# cuando lo lanza bloqueos.bat. Antes solo la leia el .bat, y correr el script
+# directo fallaba con "Falta BLOQUEOS_DB_URL" teniendola ahi al lado.
+leer_env.al_entorno()
 
 # ------------------------------------------------------------------ ubicacion
 BASE = os.environ.get("BLOQUEOS_DIR") or os.path.dirname(os.path.abspath(__file__))
@@ -88,6 +97,14 @@ TXT_CONGELADA = ("carpaccio", "congelad")
 MOTIVOS_LAB = (
     (r"listeria|\bl\.?\s?m\.?\b|\blm\b", "LISTERIA"),
     (r"\bram\b|recuento|aerobio|mesofil", "RAM"),
+    # Vida util transcurrida NO es producto vencido: es que se sobrepasaron los
+    # limites operacionales de tiempo en proceso. Lo que esa demora pone en riesgo
+    # es la carga microbiologica, asi que el criterio que lo levanta es el RAM:
+    # un RAM conforme posterior a la detencion cierra el motivo. Varias de estas
+    # filas lo dicen con todas sus letras -"quedara PNC hasta el resultado del
+    # laboratorio"-, y tratarlas como no medibles dejaba 77 lotes bloqueados
+    # esperando una firma que en realidad el laboratorio ya podia respaldar.
+    (r"vida\s*[uú]til|d[ií]as?\s+transcurrid|transcurrid\w*\s+de\s+vida", "RAM"),
     # sal y WPS entran aqui porque el nitrito no se evalua solo: lo decide el
     # binomio con la sal en fase acuosa. Un "salio bajo en sal" se responde con
     # la misma muestra que un "salio bajo en nitrito".
@@ -96,6 +113,24 @@ MOTIVOS_LAB = (
     # dejaria que un nitrito conforme liberara un bloqueo que era por otra cosa.
     (r"nitrito|\bsal\b|\bwps\b", "NITRITO"),
 )
+
+# Aclaraciones para motivos que se leen mal. El texto del registro esta escrito
+# para quien ya sabe de que se trata; quien mira la pantalla para decidir una
+# firma, no. Esta nota se agrega al veredicto para que el motivo no se entienda
+# al reves.
+MOTIVOS_NOTA = (
+    (r"vida\s*[uú]til|d[ií]as?\s+transcurrid|transcurrid\w*\s+de\s+vida",
+     "No significa que el producto este vencido: se sobrepasaron nuestros limites "
+     "operacionales de tiempo en proceso, y lo que cierra el motivo es un RAM "
+     "conforme posterior a la detencion"),
+)
+
+
+def nota_del_motivo(txt):
+    """Aclaracion en lenguaje llano para un motivo escrito a mano, si la hay."""
+    t = str(txt).lower()
+    return next((n for rx, n in MOTIVOS_NOTA if re.search(rx, t)), "")
+
 
 # Un motivo que no calza con ninguna expresion de arriba NO es liberable contra
 # el laboratorio: falta de documentacion, un reclamo de cliente o un desvio de
@@ -148,4 +183,6 @@ def huella_criterios():
             f"binomio wps/nitrito en refrigerada y en bacon/wheel: libera si "
             f"(nitrito>={LIM_NITRITO} y wps>{WPS_MIN}) o nitrito>{NIT_BINOMIO}; "
             "vigencia=ultimo resultado que cubre el criterio; "
-            "detencion historica=bloquea por su motivo hasta liberacion declarada")
+            "detencion historica=bloquea por su motivo hasta liberacion declarada; "
+            "vida util transcurrida=se cierra con RAM conforme posterior; "
+            "materia prima=no caduca por muestra posterior del mismo lote de proveedor")
