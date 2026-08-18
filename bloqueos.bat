@@ -7,6 +7,11 @@ rem    bloqueos.bat sinstock            usa el stock ya bajado (mas rapido)
 rem    bloqueos.bat sinsubir            no toca Postgres
 rem    bloqueos.bat sinstock sinsubir   las dos cosas
 rem    bloqueos.bat revisar             solo comprueba la configuracion
+rem    bloqueos.bat desatendido         para la tarea programada: sin pause y con log
+rem
+rem  "desatendido" existe porque este archivo termina en pause, y un pause en una
+rem  tarea programada deja el proceso esperando una tecla que nadie va a apretar:
+rem  la tarea queda "en ejecucion" para siempre y la siguiente no arranca.
 rem
 rem  Las credenciales NO van aqui: se leen de .env, que esta en .gitignore.
 rem  Copia .env.ejemplo a .env y completalo. Si prefieres tenerlas como
@@ -22,11 +27,13 @@ set "INICIO=%TIME%"
 set "SINSTOCK="
 set "SINSUBIR="
 set "REVISAR="
+set "DESATENDIDO="
 :args
 if "%~1"=="" goto :finargs
 if /i "%~1"=="sinstock" set "SINSTOCK=1"
 if /i "%~1"=="sinsubir" set "SINSUBIR=1"
 if /i "%~1"=="revisar"  set "REVISAR=1"
+if /i "%~1"=="desatendido" set "DESATENDIDO=1"
 shift
 goto :args
 :finargs
@@ -124,5 +131,9 @@ if errorlevel 1 (
 echo.
 echo  Empezo %INICIO:~0,8%  -  termino %TIME:~0,8%
 echo.
+rem Nadie mira una tarea programada mientras corre: si falla, lo unico que queda
+rem es el log. Y sin pause, porque no hay quien apriete la tecla.
+if defined DESATENDIDO goto :finsinpause
 pause
+:finsinpause
 endlocal
