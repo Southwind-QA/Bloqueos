@@ -7,16 +7,27 @@ declaradas por correo, y determina qué producto está bloqueado y por qué.
 > tomadas, las trampas del dominio y lo que sigue abierto. Este archivo explica cómo
 > funciona el código; ese explica por qué.
 
-Doble clic en **`bloqueos.bat`**, o desde la terminal:
+**Corre solo**, cada 2 horas de 07:00 a 19:00, en la tarea programada de Windows
+`Control de bloqueos - motor`. El log de cada corrida queda en
+`historial/corridas.log`. Corre únicamente con la sesión iniciada en este equipo:
+las fuentes están en la red interna, así que no puede correr en la nube.
+
+Para forzar una corrida, doble clic en **`bloqueos.bat`**, o desde la terminal:
 
 ```bash
 python actualizar.py
 ```
 
 El `.bat` hace el ciclo entero —baja el stock, cruza, genera la página y sube a
-Postgres— y admite `sinstock` para reusar el stock ya bajado y `sinsubir` para no
-tocar la base. Las credenciales las lee de `.env`, que no va al repositorio: copia
-`.env.ejemplo` y complétalo.
+Postgres— y admite `sinstock` para reusar el stock ya bajado, `sinsubir` para no
+tocar la base y `desatendido` para la tarea programada, que no puede quedar
+esperando en un `pause`. Las credenciales las lee de `.env`, que no va al
+repositorio: copia `.env.ejemplo` y complétalo.
+
+**Entre corrida y corrida el sitio no cambia de veredicto.** Una detención
+registrada desde la web queda guardada al instante, pero no bloquea producto
+hasta que el motor vuelva a cruzar: el estado del lote lo calcula el motor, no
+el navegador. Es la razón de que la tarea programada exista.
 
 Deja dos entregables en la carpeta: el Excel de análisis y `CONSULTA BLOQUEOS.html`,
 una página autocontenida para consultar sin conexión. Toma unos 4 minutos, casi
@@ -205,6 +216,12 @@ cambio por cambio de norma**. Sin ella, ajustar un criterio y liberar 60 lotes s
 ve igual que recibir 60 resultados conformes.
 
 ## Despliegue
+
+El sitio vive en **`https://bloqueos.serranito.win`**, un Worker de Cloudflare que
+solo sirve la carpeta `web/` (ver [`wrangler.toml`](wrangler.toml)). Tiene **dos
+puertas**: Cloudflare Access delante y el login contra Supabase detrás. Son listas
+distintas y hacen falta las dos — quien esté en `persona_autorizada` pero no en la
+política de Access no llega ni a la pantalla de login.
 
 Ver [`PROPUESTA WEB.md`](PROPUESTA%20WEB.md) y `supabase/migrations/`. Lo importante del esquema:
 el rol del motor **no tiene permiso de escritura** sobre detenciones, decisiones

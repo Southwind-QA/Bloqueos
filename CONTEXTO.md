@@ -228,7 +228,22 @@ La de PNC importa: ahí debería estar físicamente lo declarado no conforme.
 |---|---|---|
 | Código | `github.com/Southwind-QA/Bloqueos` | Sin datos: los xlsx están en `.gitignore` |
 | Base de datos | Supabase, proyecto MUM/MDQ, esquema `bloqueos` | Compartido con otra app; separado por esquema |
-| Sitio | Cloudflare Pages, carpeta `web/` | Estático, sin build |
+| Sitio | **`https://bloqueos.serranito.win`** — Worker de Cloudflare con `[assets]`, carpeta `web/` | Estático, sin build. Ver `wrangler.toml` |
+| Corrida del motor | Tarea programada de Windows en este equipo | `Control de bloqueos - motor`, cada 2 h de 07:00 a 19:00 |
+
+**El sitio tiene dos puertas, no una.** Delante de la aplicación hay **Cloudflare
+Access** (`calidad-southwind.cloudflareaccess.com`), y detrás está el login propio
+contra Supabase. Son listas distintas: alguien que esté en `persona_autorizada` pero
+no en la política de Access no llega ni a ver la pantalla de login, y alguien que pase
+Access sin estar en `persona_autorizada` entra y no ve absolutamente nada. **Al invitar
+a las 14 personas hay que darlas de alta en las dos.**
+
+**El motor corre en este equipo y no puede correr en otro lado.** Fishken y el
+`\\192.168.2.201` del laboratorio están en la red interna: GitHub Actions no los
+alcanza, por eso la automatización es una tarea programada local y no un workflow.
+La tarea corre **solo con la sesión iniciada** —para correr con el equipo bloqueado
+Windows exige guardar la contraseña de la cuenta, y eso no se hizo a propósito—, así
+que si nadie inicia sesión, no hay corrida. El log queda en `historial/corridas.log`.
 
 **Pasos manuales que no van al repositorio:**
 
@@ -273,6 +288,7 @@ fallar en silencio.
 | La consulta de packing list no miraba la detención histórica | Al incorporarlo: un lote bloqueado por correo con laboratorio conforme salía LIBERADO | La consulta resuelve contra el lab; cada origen nuevo hay que llevarlo **también** ahí, o el agujero queda justo en la pregunta que más se hace |
 | Leer las filas sin estado como si no existieran | 18.221 cajas figuraban liberadas, 11.551 de ellas declaradas por listeria | Una columna vacía es un dato: hay que averiguar qué convención la deja vacía antes de ignorarla |
 | Leer "vida útil transcurrida" como producto vencido | Lo dijo Calidad revisando los mensajes en pantalla | Un motivo escrito a mano hay que traducirlo con quien lo escribe, no inferirlo del castellano. El motor decía "no se mide en laboratorio" justo del motivo que **solo** se cierra con laboratorio |
+| La hoja `FUENTES` declaraba el total en cada archivo | Los cuatro `PRO-REG-46` decían 466 registros y la misma ventana de fechas, exactos | La hoja que existe para declarar cobertura parcial la estaba inflando cuatro veces. El número era el de las muestras de MP del laboratorio, que no salen de esos archivos: la fila se los prestaba. **Una cifra repetida idéntica en varias filas es un síntoma, no una coincidencia** |
 | Aplicar la regla de re-muestreo del producto a la materia prima | Calidad dijo "nunca haremos un re-muestreo a una materia prima desviada por listeria", y el `PRO-REG-46` lo confirmó: eran otros pallets | **Un veredicto correcto por un argumento falso sigue siendo un error.** No movió ni un lote —los 9 afectados ya se sostenían con los análisis del producto terminado— pero el motor le mostraba a quien firma una evidencia inexistente, y el próximo caso sin cobertura del terminado se habría liberado solo |
 
 ---
@@ -281,10 +297,14 @@ fallar en silencio.
 
 **Preguntas sin responder que bloquean trabajo:**
 
-1. **Quién puede firmar.** `puede_firmar` está en `false` para todos, así que hoy nadie
-   puede ejecutar una liberación. El `update` está al final de la migración de personas.
-   Es lo que más urge: hay **19.706 cajas candidatas** esperando una firma que nadie
-   puede dar. Todo lo demás que se construyó desemboca ahí.
+1. ~~**Quién puede firmar.**~~ **Resuelto el 18/08/2026:** firman Tania Brito, Matías
+   Chamorro, Carolina Bustos y Camilo Singer. La migración
+   `20260818120000_bloqueos_puede_firmar.sql` lo deja escrito; **falta aplicarla en el
+   SQL Editor** como `postgres` — el rol del motor no puede tocar `persona_autorizada`,
+   que es justamente la protección. Mientras no corra, `decision` sigue vacía y el sitio
+   le responde "Tu cuenta no puede firmar liberaciones" a todo el mundo.
+   Ojo: la atribución **no** es el rol. David Santibáñez y Alejandra Díaz tienen rol
+   `calidad` y no firman: registran detenciones.
 2. **Qué son VILA y VIMU**, y si las bodegas de inventario son stock real o un conteo
    paralelo. Si es lo segundo, sumarlas duplicaría.
 3. **44 lotes con conflicto**: figuran liberados en la detención histórica pero el
@@ -305,11 +325,11 @@ fallar en silencio.
 
 **Trabajo pendiente:**
 
-- Aplicar a mano en el SQL Editor, antes de la próxima carga a Postgres:
-  `20260811150000_bloqueos_cajas_por_destino.sql` (verificado el 11/08: las columnas
-  `cajas_por_destino` y `solo_destino` **no están todavía**, y el cargador ya las
-  escribe). La de `criterio_vida_util_y_mp` ya se aplicó ese mismo día. Las de `motivo_operativo`, `wps`, `materia_prima` y las versiones de
-  criterios del 07/08 ya están aplicadas: verificado el 11/08/2026 contra la base.
+- Aplicar a mano en el SQL Editor: **`20260818120000_bloqueos_puede_firmar.sql`**, la
+  única pendiente. Todas las anteriores están aplicadas, incluida
+  `20260811150000_bloqueos_cajas_por_destino.sql` —que este documento daba por
+  pendiente— y la huella de `config.py` calza con la versión 4 de `criterio_version`:
+  verificado el 18/08/2026 contra la base.
 - **Cambiar `huella_criterios()` sin registrar la versión en la base rompe la carga, en
   silencio para quien mira el sitio.** Pasó: el renombre a "detención histórica"
   (`d67625f`, 10/08 18:03) cambió la huella siete minutos después de la última corrida
@@ -324,9 +344,13 @@ fallar en silencio.
 - **Lo Boza tiene su propio registro, el `PRO-REG-37`**, en la misma carpeta del
   servidor. Hoy aporta solo 2 lotes de MP, por eso se dejó fuera; si esa línea crece,
   se incorpora con el mismo mecanismo.
-- Rotar la clave `sb_secret_` que quedó expuesta en un chat.
-- Invitar a las 14 personas autorizadas.
-- Automatizar el motor en GitHub Actions.
+- Rotar la clave `sb_secret_` que quedó expuesta en un chat. Verificado el 18/08/2026:
+  no está en el repositorio ni en el historial de git, solo mencionada por nombre.
+- Invitar a las 14 personas autorizadas, **en Cloudflare Access y en
+  `persona_autorizada`**: son dos listas y hacen falta las dos (ver la sección 6).
+- ~~Automatizar el motor en GitHub Actions.~~ **Hecho el 18/08/2026 como tarea
+  programada local**, porque las fuentes están en la red interna y Actions no las
+  alcanza. Ver la sección 6.
 - El monitor de cámaras (`192.168.3.3`) como fuente de producto en proceso: es en vivo,
   no requiere autenticación y trae Pallet ID, que es lo que falta para las detenciones
   de cantidad parcial. Se evaluó y se dejó fuera porque no tiene cliente ni condición.
