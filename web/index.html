@@ -664,14 +664,22 @@ function csvBloqueados(){
 const SALEN = ['LIBERADO', 'CANDIDATO A LIBERAR', 'LIBERADO POR DECISION'];
 let LIB = null, ULT_LIB = [], ULT_BLOQ = [];
 
-async function traerLiberaciones(){
-  const {data, error} = await sb.from('cambio_estado')
-    .select('nivel, clave, estado_ant, estado_nuevo, causas, cajas, por_criterio, corrida(inicio)')
-    .in('estado_nuevo', SALEN)
-    .in('estado_ant', ['BLOQUEADO', 'PNC', 'CANDIDATO A LIBERAR', 'SIN ANALISIS'])
-    .order('id', {ascending:false}).limit(1000);
-  if(error){console.warn('liberaciones:', error.message); return [];}
-  return data;
+// Por paginas, no con .limit(1000): cambio_estado solo crece -una tanda por
+// corrida- y el tope de la API cortaba en silencio hacia el lado que muestra
+// menos liberaciones de las que hubo. Es el mismo corte que dejaba 1.000 de los
+// 2.381 batches y hacia aparecer todo lo que faltaba como "sin resultado".
+async function traerLiberaciones(pagina = 1000){
+  const filas = [];
+  for(let desde = 0; ; desde += pagina){
+    const {data, error} = await sb.from('cambio_estado')
+      .select('nivel, clave, estado_ant, estado_nuevo, causas, cajas, por_criterio, corrida(inicio)')
+      .in('estado_nuevo', SALEN)
+      .in('estado_ant', ['BLOQUEADO', 'PNC', 'CANDIDATO A LIBERAR', 'SIN ANALISIS'])
+      .order('id', {ascending:false}).range(desde, desde + pagina - 1);
+    if(error){console.warn('liberaciones:', error.message); return filas;}
+    filas.push(...data);
+    if(data.length < pagina) return filas;
+  }
 }
 window.pintaLiberados = async () => {
   if(LIB === null){ $('r-lib').innerHTML = '<div class="card empty">cargando…</div>';
