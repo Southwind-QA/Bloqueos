@@ -232,6 +232,13 @@ def laxo_prov(s):
 
 # ---- PRO-REG-46: una hoja por proveedor, lote de proveedor -> lote SW
 MP_DE_SW, PROV_46, _f46, _anios46 = {}, {}, [], {}
+# Lo que aporta CADA archivo, para que la hoja FUENTES no declare el total en
+# cada fila: cuatro veces el mismo numero se lee como cuatro veces la cobertura,
+# que es justo el error que esa hoja existe para evitar.
+_ap46 = {}
+# La fecha de recepcion viene con acento y el acento cambia entre archivos, asi
+# que la columna se busca por su forma, no por su nombre exacto.
+_RX_REC46 = re.compile(r"fecha\s+de\s+recepci", re.I)
 for f in sorted(glob.glob(config.ruta(config.GLOB_MP))):
     n46 = os.path.basename(f)
     if n46.startswith("~$"):
@@ -246,6 +253,7 @@ for f in sorted(glob.glob(config.ruta(config.GLOB_MP))):
         continue
     _anios46[_a] = n46
     _f46.append(n46)
+    _ap46[n46] = {"enlaces": 0, "fechas": []}
     try:
         xls46 = pd.ExcelFile(f)
     except Exception as e:                                          # noqa: BLE001
@@ -256,6 +264,9 @@ for f in sorted(glob.glob(config.ruta(config.GLOB_MP))):
         d46.columns = [str(c).strip() for c in d46.columns]
         if "lote proveedor" not in d46.columns or "Lote SW" not in d46.columns:
             continue
+        _c_rec = next((c for c in d46.columns if _RX_REC46.search(c)), None)
+        if _c_rec:
+            _ap46[n46]["fechas"].append(pd.to_datetime(d46[_c_rec], errors="coerce"))
         for _, x in d46[d46["lote proveedor"].notna() & d46["Lote SW"].notna()].iterrows():
             sw = norm(x["Lote SW"])
             if len(sw) < MIN_LOTE:
@@ -263,6 +274,7 @@ for f in sorted(glob.glob(config.ruta(config.GLOB_MP))):
             for p in lotes_prov(x["lote proveedor"]):
                 MP_DE_SW.setdefault(sw, set()).add(laxo_prov(p))
                 PROV_46[laxo_prov(p)] = hoja
+                _ap46[n46]["enlaces"] += 1
 
 if _f46:
     print(f"  materias primas: {len(_f46)} PRO-REG-46 ({', '.join(sorted(_anios46))}) -> "
@@ -1998,12 +2010,25 @@ fuentes.append({"FUENTE": "Detenciones", "ARCHIVO": FUENTE_DET, "REGISTROS": len
                 "DESDE": fd.min(), "HASTA": fd.max(),
                 "ARCHIVO GUARDADO": (pd.Timestamp.now() if "Postgres" in FUENTE_DET
                                      else _guardado(os.path.basename(F_DET)))})
+# Cada PRO-REG-46 declara LO SUYO: los enlaces lote de proveedor -> lote SW que
+# aporta, y la ventana de sus propias recepciones. Antes esta fila repetia en los
+# cuatro archivos el total de muestras de materia prima del laboratorio, que no
+# sale de aqui: se leia como cuatro veces la cobertura que realmente hay.
 for _n46 in _f46:
+    _fr = _ap46.get(_n46, {}).get("fechas") or []
+    _fr = pd.concat(_fr) if _fr else pd.Series(dtype="datetime64[ns]")
     fuentes.append({"FUENTE": "Materia prima (PRO-REG-46)", "ARCHIVO": _n46,
-                    "REGISTROS": len(mp),
-                    "DESDE": mp["_FECHA"].min() if len(mp) else pd.NaT,
-                    "HASTA": mp["_FECHA"].max() if len(mp) else pd.NaT,
+                    "REGISTROS": _ap46.get(_n46, {}).get("enlaces", 0),
+                    "DESDE": _fr.min() if len(_fr) else pd.NaT,
+                    "HASTA": _fr.max() if len(_fr) else pd.NaT,
                     "ARCHIVO GUARDADO": _guardado(_n46)})
+# Las muestras de materia prima son del laboratorio, no del PRO-REG-46. Iban sin
+# fila propia y por eso terminaron prestadas en la de los archivos de ingreso.
+fuentes.append({"FUENTE": "Materia prima (muestras de laboratorio)",
+                "ARCHIVO": "LAB-REG-08 (filas de MP, sin lote SW)", "REGISTROS": len(mp),
+                "DESDE": mp["_FECHA"].min() if len(mp) else pd.NaT,
+                "HASTA": mp["_FECHA"].max() if len(mp) else pd.NaT,
+                "ARCHIVO GUARDADO": pd.NaT})
 fuentes.append({"FUENTE": "Detenciones historicas (abiertas)",
                 "ARCHIVO": config.ARCH_OPERATIVO, "REGISTROS": len(ope),
                 "DESDE": ope["FECHA"].min() if len(ope) else pd.NaT,
