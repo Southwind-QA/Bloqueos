@@ -755,12 +755,15 @@ function fechaISO(t){
   const a = m[3].length === 2 ? '20'+m[3] : m[3];
   return `${a}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
 }
+// El anio sale del reloj, no del ultimo ID registrado: sacandolo del registro,
+// la primera detencion de enero se numeraba DET-2026-015 en vez de DET-2027-001
+// y el correlativo no volvia a empezar nunca. El correlativo se cuenta dentro de
+// SU anio, que es lo que el formato DET-AAAA-NNN dice que significa.
 function siguienteID(){
-  const nums = DET.map(x => {const m = String(x.id).match(/DET-\d{4}-(\d+)/);
-    return m ? parseInt(m[1],10) : 0;});
+  const anio = String(new Date().getFullYear());
+  const rx = new RegExp('^DET-'+anio+'-(\\d+)$');
+  const nums = DET.map(x => {const m = String(x.id).match(rx); return m ? parseInt(m[1],10) : 0;});
   const n = nums.length ? Math.max(...nums) : 0;
-  const anio = (String(DET.map(x=>x.id).sort().pop()||'').match(/DET-(\d{4})/)||[])[1]
-    || String(new Date().getFullYear());
   return k => `DET-${anio}-${String(n+1+k).padStart(3,'0')}`;
 }
 
@@ -873,11 +876,26 @@ window.guardarDet = async () => {
     criterios: Array.isArray(f.criterios) ? f.criterios
       : String(f.criterios).split(/[;,]/).map(s=>s.trim().toUpperCase()).filter(Boolean),
     estado:f.estado, origen:'Correo, cargado desde el sitio', creado_por: yo.id}));
-  const {error} = await sb.from('detencion').insert(filas);
+  let {error} = await sb.from('detencion').insert(filas);
+  // El correlativo se calcula en el navegador contra lo que se leyo al entrar: si
+  // otra persona registro una detencion en el intermedio, los IDs chocan y Postgres
+  // rechaza la tanda entera. Falla del lado seguro -no se guarda nada a medias- pero
+  // el mensaje no decia que basta reintentar. Se releen los IDs y se renumera solo.
+  if(error && /duplicate key|23505/i.test(error.message)){
+    DET = await traerDet();
+    const sig = siguienteID();
+    filas.forEach((f, i) => {f.id = sig(i); PROP_DET[i].id = f.id;});
+    ({error} = await sb.from('detencion').insert(filas));
+  }
   if(error){
     const rls = /row-level security|permission/i.test(error.message);
+    const dup = /duplicate key|23505/i.test(error.message);
     return alert(rls ? 'Tu cuenta no tiene permiso para registrar detenciones: hace falta '+
-      'el rol calidad o admin.' : 'No se pudo guardar: '+error.message);
+      'el rol calidad o admin.'
+      : dup ? 'Otra persona está registrando detenciones en este mismo momento y los '+
+        'correlativos chocaron dos veces. No se guardó nada: vuelve a presionar Guardar '+
+        'en unos segundos.'
+      : 'No se pudo guardar: '+error.message);
   }
   DET = await traerDet();
   limpiarCorreo(); pintaDet();
