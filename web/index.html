@@ -601,6 +601,25 @@ async function entrar(){
   $('nav').innerHTML = VIEWS.map(([k,n])=>
     `<button role="tab" data-v="${k}" aria-selected="${k==='consulta'}" onclick="ir('${k}')">${n}</button>`).join('');
   correr(); pintaStock();
+  enlaceDirecto();
+}
+
+// Un enlace del boletin -.../?lote=@2VQ2625236I- abre la busqueda con ese codigo
+// ya escrito. Sirve para cerrar el ciclo desde el telefono: leer que falta
+// registrar una detencion y poder tocarla, en vez de tener que acordarse al
+// llegar a la oficina.
+//
+// El parametro va en la query y NO en el hash, aunque el hash seria lo natural
+// para navegacion: supabase-js consume y limpia el hash apenas detecta un token
+// de invitacion o recuperacion, asi que un enlace con hash se perderia justo en
+// la primera visita de alguien recien invitado. La query sobrevive a eso y al
+// location.reload() que sigue a definir la contrasena.
+function enlaceDirecto(){
+  const lote = new URLSearchParams(location.search).get('lote');
+  if(!lote) return;
+  ir('buscar');
+  $('f3').value = lote;
+  pintaBusca();
 }
 window.ir = v => {
   VIEWS.forEach(([k]) => $('v-'+k).hidden = (k!==v));
