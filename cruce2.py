@@ -239,18 +239,46 @@ _ap46 = {}
 # La fecha de recepcion viene con acento y el acento cambia entre archivos, asi
 # que la columna se busca por su forma, no por su nombre exacto.
 _RX_REC46 = re.compile(r"fecha\s+de\s+recepci", re.I)
-for f in sorted(glob.glob(config.ruta(config.GLOB_MP))):
+
+
+def pro46_por_anio(archivos):
+    """Un PRO-REG-46 por anio: si hay dos, el modificado mas recientemente.
+
+    Un anio cargado dos veces cuenta cada ingreso dos veces (paso con el
+    LAB-REG-08 y se detecto tarde), asi que se carga uno solo. Pero cual no lo
+    puede decidir el orden alfabetico: una copia local "2026. (PRO-REG-46) ESTE
+    ESTA ACTUALIZADO.xlsx" del 01/09 ordenaba antes que la del servidor del 22/09
+    y se quedaba con el anio, y la materia prima que entro despues no arrastraba
+    su bloqueo a ningun producto. El que se edito ultimo es el vigente.
+
+    Devuelve ({anio: ruta elegida}, [(ruta omitida, anio), ...]).
+    """
+    grupos = {}
+    for f in archivos:
+        n = os.path.basename(f)
+        if n.startswith("~$"):
+            continue
+        a = re.search(r"\b(20\d\d)\b", n)
+        grupos.setdefault(a.group(1) if a else n, []).append(f)
+    elegidos, omitidos = {}, []
+    for a, fs in grupos.items():
+        fs = sorted(fs, key=os.path.getmtime, reverse=True)
+        elegidos[a] = fs[0]
+        omitidos += [(x, a) for x in fs[1:]]
+    return elegidos, omitidos
+
+
+def _mod(f):
+    return f"{datetime.datetime.fromtimestamp(os.path.getmtime(f)):%d/%m/%Y %H:%M}"
+
+
+_el46, _om46 = pro46_por_anio(glob.glob(config.ruta(config.GLOB_MP)))
+for _x, _a in _om46:
+    print(f"  (PRO-REG-46 OMITIDO por duplicar {_a}): {os.path.basename(_x)} [{_mod(_x)}]")
+    print(f"      se carga el mas reciente: {os.path.basename(_el46[_a])} "
+          f"[{_mod(_el46[_a])}]. Aparta el que sobre.")
+for _a, f in sorted(_el46.items()):
     n46 = os.path.basename(f)
-    if n46.startswith("~$"):
-        continue
-    # Un anio cargado dos veces cuenta cada ingreso dos veces. Paso lo mismo con
-    # el LAB-REG-08 y se detecto tarde: aqui se corta al entrar.
-    _a = re.search(r"\b(20\d\d)\b", n46)
-    _a = _a.group(1) if _a else n46
-    if _a in _anios46:
-        print(f"  (PRO-REG-46 OMITIDO por duplicar {_a}): {n46}")
-        print(f"      ya se cargo desde {_anios46[_a]}. Borra el que sobre.")
-        continue
     _anios46[_a] = n46
     _f46.append(n46)
     _ap46[n46] = {"enlaces": 0, "fechas": []}
