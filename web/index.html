@@ -945,6 +945,35 @@ async function traerCriterioVigente(){
   return data[0];
 }
 
+// Unidades de laboratorio (lote con su sufijo *SSD) que siguen NO CONFORMES. Lo
+// decide el motor y viaja en lote.unidades_no_conformes; aca solo se muestra.
+// Desde el 30/09/2026 un conforme de otra unidad ya no cierra la que fallo, asi que
+// un lote con una unidad asi no deberia llegar a candidato: esto es defensa en
+// profundidad, no la regla. Si el campo todavia no viene (una carga anterior a la
+// migracion), se cae a la tabla de unidades, que no trae la fecha de la falla.
+function unidadesNoConformes(o){
+  if(Array.isArray(o.unidades_no_conformes)) return o.unidades_no_conformes;
+  return B.filter(b => (b.causas||[]).length && (b.lote_base === o.normalizado
+      || emparenta(o.normalizado, norm(b.normalizado))))
+    .flatMap(b => b.causas.map(c => ({unidad: b.normalizado, criterio: c, fecha: null,
+      detalle: b.motivo_lab || ''})));
+}
+function avisoUnidades(o){
+  const u = unidadesNoConformes(o);
+  if(!u.length) return '';
+  // No bloquea la firma: la decision es de Calidad. Pero se firma viendolo.
+  return '<div class="aviso" style="background:var(--t-critical);border-color:var(--critical)">'+
+    '<span style="color:var(--critical)">&#9888;</span><div style="min-width:0">'+
+    `<b style="color:var(--critical)">${u.length===1?'Una unidad de este lote sigue':u.length+
+      ' unidades de este lote siguen'} NO CONFORME en laboratorio</b>, sin re-muestreo `+
+    'conforme de esa misma unidad. Un conforme de otra unidad no la cierra.'+
+    mini(['Unidad','Criterio','Fecha de la falla'], u.map(x => [
+      `<span class="mono" style="color:var(--critical)">${esc(x.unidad)}</span>`,
+      `<span style="color:var(--critical)">${esc(x.criterio)}</span>`,
+      `<span style="color:var(--critical)">${esc(x.fecha || 'ver detalle de la unidad')}</span>`]))+
+    '</div></div>';
+}
+
 window.firmar = (tipo, ref) => {
   if(!yo.puede_firmar) return alert('Tu cuenta no puede firmar liberaciones.');
   if(!CRIT_VER) return alert('No se pudo leer la versión de criterios vigente. '+
@@ -969,6 +998,7 @@ window.firmar = (tipo, ref) => {
     `<div class="aviso"><span>&#9888;</span><div><b>Esto no se puede deshacer.</b> `+
     'La firma queda con tu nombre y la hora, y no se borra: si queda mal, se anula con '+
     'otra firma. Firma solo lo que revisaste.</div></div>'+
+    (o ? avisoUnidades(o) : '')+
     `<div class="note" style="margin:12px 0">${quePasa}</div>`+
     grp('Evidencia', '<label class="fld" for="f-evid">Con qué se libera '+
       '(códigos y fechas de laboratorio). Obligatorio.</label>'+
