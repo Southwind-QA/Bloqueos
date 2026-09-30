@@ -34,12 +34,21 @@ BASE = os.environ.get("BLOQUEOS_DIR") or os.path.dirname(os.path.abspath(__file_
 # sistemas daban veredictos distintos sobre la misma fila del LAB-REG-08.
 #
 # El promedio se calcula igual que alla, para que no haya dos normas escritas:
-# replicas RAM1-RAM5 leidas como numero; lo que no es numero (vacio, "<10",
-# "incontable") no entra al promedio, y el promedio se redondea a entero antes
-# de comparar. Una muestra sin ninguna replica numerica es "sin dato de RAM".
-# Que "incontable" quede fuera del promedio es la direccion permisiva; hoy no hay
-# ninguna replica asi, y el motor avisa en consola si aparece (ver cruce2.py).
+# replicas RAM1-RAM5 leidas como numero; lo que no es numero no entra al promedio,
+# y el promedio se redondea a entero antes de comparar.
+#
+# Pero no todo lo que no es numero significa lo mismo (decision de Calidad del
+# 30/09/2026):
+#   - "<10", "<250": bajo el limite de deteccion. Fuera del promedio.
+#   - vacio: sin dato.
+#   - "incontable", ">N", TNTC, INC, "incont.", MNPC: el conteo paso el techo del
+#     metodo. Esa replica hace NO CONFORME a la muestra, sea cual sea el promedio.
+#     Dejarla fuera del promedio era la direccion permisiva: bastaban dos replicas
+#     bajas para absolver una placa que no se pudo contar.
+# Cualquier otro texto queda fuera del promedio y el motor lo avisa en consola.
 LIM_RAM = 500_000
+RAM_TECHO = (r"^\s*>|incont|\btntc\b|\binc\b|\bmnpc\b|\bmnc\b|innumer"
+             r"|numeros\w*\s+para\s+contar|sobre\s+(?:el\s+)?(?:techo|rango|limite)")
 
 # Binomio WPS / nitrito. Ninguno de los dos por si solo decide: lo que controla
 # Listeria en el ahumado es la combinacion de sal en fase acuosa y nitrito.
@@ -199,7 +208,8 @@ def ruta(*partes):
 # que permite distinguir "cambio el resultado" de "cambiamos la norma".
 def huella_criterios():
     return (f"listeria=refrigerada+congelada(EEUU|CostaRica); "
-            f"ram promedio de replicas>{LIM_RAM}; "
+            f"ram promedio de replicas>{LIM_RAM} o alguna replica incontable "
+            "(sobre el techo del metodo); "
             f"binomio wps/nitrito en refrigerada y en bacon/wheel: libera si "
             f"(nitrito>={LIM_NITRITO} y wps>{WPS_MIN}) o nitrito>{NIT_BINOMIO}; "
             "vigencia=ultimo resultado que cubre el criterio, dentro de la misma "

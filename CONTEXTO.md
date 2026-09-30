@@ -115,7 +115,7 @@ Viven en [`config.py`](config.py). Cambiarlos ahí es visible en el diff, que es
 
 | Criterio | Dónde aplica |
 |---|---|
-| **RAM** > 500.000 UFC/g, sobre el **promedio de réplicas** de la muestra | Toda línea |
+| **RAM** > 500.000 UFC/g, sobre el **promedio de réplicas** de la muestra; una réplica incontable (sobre el techo del método) basta para no conforme | Toda línea |
 | **Binomio WPS/nitrito** | Refrigerada, **más bacon y wheel** (salen congelados pero se venden refrigerados en destino) |
 | **Listeria** presencia | Refrigerada siempre; congelada solo con destino **EE.UU. o Costa Rica** |
 
@@ -155,12 +155,23 @@ SSCA y la que aplica el dashboard de inocuidad (`parsers/reg08.py`). Aquí se ex
 100.000 a cada réplica, y los dos sistemas daban veredictos distintos sobre la misma
 fila: `@2VQ26292472K*39L`, con réplicas 163.000 / 25.000 / 38.000, quedaba bloqueado en
 uno y conforme en el otro. El promedio se calcula igual que allá, para que la norma no
-quede escrita dos veces: lo que no es número (vacío, `<10`, «incontable») no entra y el
-promedio se redondea a entero. Eso tiene un flanco permisivo —una réplica
-«incontable» no sube el promedio—; hoy no hay ninguna, y el motor lo avisa en consola si
-aparece. La evidencia de RAM se cuenta ahora en muestras, no en réplicas. Efecto: 55
+quede escrita dos veces: lo que no es número no entra y el promedio se redondea a
+entero. La evidencia de RAM se cuenta ahora en muestras, no en réplicas. Efecto: 55
 muestras de producto terminado que fallaban por una réplica pasan a conformes; 94
 siguen sobre el límite. Ninguna materia prima cambia.
+
+**Una réplica incontable hace no conforme a la muestra, sea cual sea el promedio**
+(también del 30/09/2026). Copiar el promedio del dashboard traía un flanco permisivo:
+una réplica escrita «incontable», «>N», TNTC o INC —el conteo pasó el techo del
+método— quedaba fuera del promedio, y bastaba que las otras dos salieran bajas para
+absolver una placa que no se pudo contar. Ahora esa réplica decide sola, con el texto
+«RAM: réplica incontable (sobre el techo del método)». `<N`, que es lo contrario —bajo
+el límite de detección—, sigue fuera del promedio, y el vacío es sin dato. Cualquier
+otro texto queda fuera y el motor lo avisa en consola. El contraargumento es que se
+aparta del cálculo del dashboard; se aceptó porque la diferencia va hacia bloquear y el
+dashboard se corrige con la misma regla. Hoy no mueve nada: en `RAM1`–`RAM5` de los dos
+LAB-REG-08 no hay una sola réplica escrita como texto. Las expresiones reconocidas
+viven en `config.RAM_TECHO`.
 
 Las dos van en una sola versión de criterios (migración
 `20260930120000_bloqueos_criterio_unidad_y_ram_promedio.sql`). Juntas, sobre la misma

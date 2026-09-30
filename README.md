@@ -105,7 +105,7 @@ visible en el diff y no haya que leer el motor.
 
 | Criterio | Dónde aplica |
 |---|---|
-| **RAM** > 500.000 UFC/g, sobre el promedio de réplicas (como el dashboard de inocuidad) | Toda línea, sin excepciones |
+| **RAM** > 500.000 UFC/g, sobre el promedio de réplicas (como el dashboard de inocuidad); una réplica incontable, «>N» o TNTC basta para no conforme | Toda línea, sin excepciones |
 | **Binomio WPS/nitrito** | Línea refrigerada, **más bacon y wheel** (salen congelados de planta pero se venden refrigerados en destino) |
 | **Listeria** presencia | Línea refrigerada siempre; línea congelada solo si el destino es **EE.UU. o Costa Rica** |
 

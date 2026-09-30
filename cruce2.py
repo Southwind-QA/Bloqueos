@@ -201,26 +201,54 @@ def ram_promedio(d):
     numero, lo que no es numero -vacio, "<10", "incontable"- queda fuera, promedio
     de lo que queda y redondeo a entero. Sin replicas numericas, NaN: sin dato.
     Dos sistemas que leen la misma fila no pueden dar veredictos distintos.
+
+    Una replica sobre el techo del metodo no entra al promedio, pero tampoco se
+    pierde: la marca ram_techo() y hace no conforme a la muestra.
     """
     return d[RAM].apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True).round(0)
 
 
-def ram_no_numericas(d):
-    """Replicas de RAM escritas pero no numericas. El promedio las ignora, igual
-    que el dashboard; si una dice "incontable" eso es la direccion permisiva, asi
-    que no se deja pasar en silencio."""
+RX_RAM_TECHO = re.compile(config.RAM_TECHO, re.I)
+
+
+def _texto_ram(d):
+    """Las replicas de RAM escritas como texto, sin los numeros ni los vacios."""
     v = d[RAM].astype(str).apply(lambda c: c.str.strip())
     num = d[RAM].apply(pd.to_numeric, errors="coerce")
-    raro = d[RAM].notna() & num.isna() & ~v.isin(["", "nan", "NaN", "None"])
-    return int(raro.sum().sum()), sorted({x for x in v[raro].stack()})[:5]
+    return v, d[RAM].notna() & num.isna() & ~v.isin(["", "nan", "NaN", "None"])
+
+
+def ram_techo(d):
+    """True si alguna replica dice que el conteo paso el techo del metodo.
+
+    "incontable", ">N", TNTC, INC, MNPC: la placa no se pudo contar porque habia
+    demasiado. Decision de Calidad del 30/09/2026: eso hace NO CONFORME a la
+    muestra sea cual sea el promedio. Dejarla fuera del promedio -que es lo que
+    hace el calculo del dashboard- absolvia la placa con que las otras dos
+    replicas salieran bajas. "<10" es lo contrario, bajo el limite de deteccion,
+    y sigue fuera del promedio.
+    """
+    v, txt = _texto_ram(d)
+    return (txt & v.apply(lambda c: c.str.contains(RX_RAM_TECHO))).any(axis=1)
+
+
+def ram_no_numericas(d):
+    """Replicas de RAM escritas como texto que no son ni "<N" ni un techo. Quedan
+    fuera del promedio, y como no se sabe que dicen no se dejan pasar en silencio."""
+    v, txt = _texto_ram(d)
+    raro = txt & ~v.apply(lambda c: c.str.match(r"^<\s*\d") | c.str.contains(RX_RAM_TECHO))
+    return int(raro.sum().sum()), sorted({str(x) for x in v.where(raro).stack().dropna()})[:5]
 
 
 lab["_RAM"] = ram_promedio(lab)
+lab["_RAM_TECHO"] = ram_techo(lab)
+if lab["_RAM_TECHO"].any():
+    print(f"  RAM: {int(lab['_RAM_TECHO'].sum())} muestra(s) con una replica sobre el techo "
+          "del metodo (incontable): no conformes aunque el promedio cumpla")
 _rn, _rx = ram_no_numericas(lab)
 if _rn:
-    print(f"  ATENCION RAM: {_rn} replica(s) escritas pero no numericas ({', '.join(_rx)}) "
-          "quedan fuera del promedio, como en el dashboard de inocuidad. Si alguna es "
-          "'incontable', revisar esa muestra a mano")
+    print(f"  ATENCION RAM: {_rn} replica(s) escritas como texto que no se reconocen "
+          f"({', '.join(_rx)}): quedan fuera del promedio. Revisar esas muestras a mano")
 _n = lab[NIT].apply(pd.to_numeric, errors="coerce")
 lab["_NIT"] = pd.to_numeric(lab["NITRITO PROMEDIO"], errors="coerce").fillna(_n.mean(axis=1))
 lab["_NIT_MIN"] = _n.min(axis=1)
@@ -351,13 +379,14 @@ if _MP_CRUDAS:
     mp["_LM_DATO"] = mp[LM].notna().any(axis=1)
     mp["_LIS_APLICA"] = True          # en materia prima no hay destino que la exima
     mp["_RAM"] = ram_promedio(mp)
+    mp["_RAM_TECHO"] = ram_techo(mp)
     mp["_NIT"] = pd.NA                # la MP no trae nitrito ni WPS
     mp["_WPS"] = pd.NA
     mp["_NIT_APLICA"] = False
     mp = mp[mp["_L"].str.len() >= MIN_PROV]
 else:
     mp = pd.DataFrame(columns=["_L", "_FECHA", "_LM_P", "_LM_DATO", "_LIS_APLICA",
-                               "_RAM", "_NIT", "_WPS", "_NIT_APLICA", "OBSERVACIÓN"])
+                               "_RAM", "_RAM_TECHO", "_NIT", "_WPS", "_NIT_APLICA", "OBSERVACIÓN"])
 
 # ------------------------------------------------- linea de proceso
 # El nitrito es un control de la linea REFRIGERADA: en la congelada el criterio no
@@ -639,6 +668,7 @@ def evalua(rows, criterios=None, desde=None):
     else:
         r["listeria"] = None
     r["ram"] = rows["_RAM"].max() if rows["_RAM"].notna().any() else None
+    r["ram_techo"] = bool(rows["_RAM_TECHO"].any())
     r["nitrito"] = rows["_NIT"].min() if rows["_NIT"].notna().any() else None
     r["nit_min"] = rows["_NIT_MIN"].min() if rows["_NIT_MIN"].notna().any() else None
     r["wps"] = rows["_WPS"].min() if rows["_WPS"].notna().any() else None
@@ -653,6 +683,9 @@ def evalua(rows, criterios=None, desde=None):
     return r, rows
 
 
+TXT_RAM_TECHO = "RAM: réplica incontable (sobre el techo del método)"
+
+
 def incumple(r, criterio):
     """(no_conforme, falta_dato, texto) para un criterio dado."""
     if criterio == "LISTERIA":
@@ -663,6 +696,8 @@ def incumple(r, criterio):
                                   "destino EE.UU. ni Costa Rica")
         return r["listeria"] == "PRESENCIA", False, "Listeria: PRESENCIA"
     if criterio == "RAM":
+        if r.get("ram_techo"):
+            return True, False, TXT_RAM_TECHO
         if r["ram"] is None:
             return False, True, "sin dato de RAM"
         return r["ram"] > LIM_RAM, False, (f"RAM promedio {r['ram']:,.0f} UFC/g > "
@@ -1031,7 +1066,7 @@ def con_dato(rows, c):
     if c == "LISTERIA":
         return rows[rows["_LM_DATO"]]
     if c == "RAM":
-        return rows[rows["_RAM"].notna()]
+        return rows[rows["_RAM"].notna() | rows["_RAM_TECHO"]]
     return rows[rows["_NIT"].notna()]
 
 
@@ -1045,7 +1080,7 @@ def mide(rows, c):
     if c == "LISTERIA":
         return rows[rows["_LM_DATO"] & rows["_LIS_APLICA"]]
     if c == "RAM":
-        return rows[rows["_RAM"].notna()]
+        return rows[rows["_RAM"].notna() | rows["_RAM_TECHO"]]
     return rows[rows["_NIT"].notna() & rows["_NIT_APLICA"]]
 
 
@@ -1067,7 +1102,7 @@ def _falla(row, c):
     if c == "LISTERIA":
         return bool(row["_LM_P"])
     if c == "RAM":
-        return pd.notna(row["_RAM"]) and row["_RAM"] > LIM_RAM
+        return bool(row["_RAM_TECHO"]) or (pd.notna(row["_RAM"]) and row["_RAM"] > LIM_RAM)
     return binomio(row["_NIT"], row["_WPS"])[0]
 
 
@@ -1075,6 +1110,8 @@ def _texto(row, c):
     if c == "LISTERIA":
         return "Listeria: PRESENCIA"
     if c == "RAM":
+        if row["_RAM_TECHO"]:
+            return TXT_RAM_TECHO
         k = int(pd.to_numeric(row[RAM], errors="coerce").notna().sum())
         return (f"RAM promedio {row['_RAM']:,.0f} UFC/g de {k} replica(s) > "
                 f"{LIM_RAM:,}").replace(",", ".")
@@ -1109,8 +1146,8 @@ def cuenta_analisis(rows, c):
         v = rows[LM].astype(str).apply(lambda col: col.str.strip().str.upper())
         return int(v.isin(["A", "P"]).sum().sum()), int((v == "P").sum().sum())
     if c == "RAM":
-        v = rows["_RAM"]
-        return int(v.notna().sum()), int((v > LIM_RAM).sum())
+        v, t = rows["_RAM"], rows["_RAM_TECHO"]
+        return int((v.notna() | t).sum()), int(((v > LIM_RAM) | t).sum())
     return len(rows), int(rows.apply(lambda r: _falla(r, c), axis=1).sum()) if len(rows) else 0
 
 
@@ -1531,7 +1568,8 @@ for l in universo:
     # Trazabilidad de la liberacion: por que quedo liberado, criterio por criterio.
     por_crit = "; ".join(f"{c}={agg[c]['estado']}" for c in CRIT)
     _con = mide(rows_lab, "LISTERIA")
-    _mu = rows_lab[rows_lab["_LM_DATO"] | rows_lab["_RAM"].notna() | rows_lab["_NIT"].notna()]
+    _mu = rows_lab[rows_lab["_LM_DATO"] | rows_lab["_RAM"].notna()
+                  | rows_lab["_RAM_TECHO"] | rows_lab["_NIT"].notna()]
     evidencia = ", ".join(
         f"lab {cod_lab(x['CÓDIGO LAB'])} del {x['_FECHA']:%d/%m/%Y}"
         for _, x in _mu.sort_values("_FECHA").tail(4).iterrows()
@@ -2202,7 +2240,7 @@ for i in range(len(res)):
 
 ws["A1"] = "CRUCE DE BLOQUEOS - STOCK x LAB-REG-08 2026 x REGISTRO DE DETENCIONES"
 ws["A2"] = (f"Laboratorio (derivado, se recalcula): Listeria PRESENCIA en toda linea | "
-            f"RAM promedio de replicas > {LIM_RAM:,} UFC/g en toda linea | Binomio WPS/nitrito: libera si "
+            f"RAM promedio de replicas > {LIM_RAM:,} UFC/g, o una replica incontable, en toda linea | Binomio WPS/nitrito: libera si "
             f"nitrito >= {LIM_NITRITO} ppm CON WPS > {WPS_MIN}%, o si el nitrito supera "
             f"{NIT_BINOMIO} ppm por si solo; bajo {LIM_NITRITO} ppm bloquea aunque el WPS "
             "sobre, y sin WPS medido no se puede acreditar. SOLO en linea refrigerada y en "

@@ -20,8 +20,14 @@
 --     la especificacion vigente del SSCA y la que aplica el dashboard de
 --     inocuidad (parsers/reg08.py). Hasta hoy se exigia 100.000 a cada replica, y
 --     los dos sistemas daban veredictos distintos sobre la misma fila. El promedio
---     se calcula igual que alla: lo que no es numero ("<10", "incontable", vacio)
---     no entra, y se redondea a entero antes de comparar.
+--     se calcula igual que alla: lo que no es numero no entra, y se redondea a
+--     entero antes de comparar. Pero una replica sobre el techo del metodo
+--     ("incontable", ">N", TNTC, INC, MNPC) hace NO CONFORME a la muestra sea cual
+--     sea el promedio: dejarla fuera absolvia una placa que no se pudo contar con
+--     que las otras replicas salieran bajas. "<N" (bajo el limite de deteccion)
+--     sigue fuera del promedio; vacio es sin dato. Decidido tambien el 30/09/2026.
+--     Hoy no hay ninguna replica asi en RAM1-RAM5 de los dos LAB-REG-08: la regla
+--     no mueve ninguna muestra ni ningun lote, cierra un camino hacia liberar.
 --
 --  Efecto medido sobre la foto del 30/09/2026 13:12 (misma entrada, codigo de
 --  main contra la rama), 398 lotes en stock:
@@ -37,6 +43,7 @@
 --      Candidatos con stock: de 100 a 95. Ninguno queda con una unidad no conforme.
 --      55 muestras de producto terminado fallaban solo por una replica > 100.000
 --      con promedio <= 500.000; 94 siguen sobre 500.000.
+--      Replica incontable: 0 muestras, 0 lotes (no hay ninguna en el registro).
 --
 --  Ademas lote.unidades_no_conformes lleva, por lote, cada unidad que sigue no
 --  conforme con su criterio y la fecha de la falla. Lo muestra en rojo el dialogo
@@ -60,7 +67,8 @@ comment on column lote.unidades_no_conformes is
 update criterio_version set hasta = now()
 where hasta is null
   and huella <> 'listeria=refrigerada+congelada(EEUU|CostaRica); '
-                'ram promedio de replicas>500000; '
+                'ram promedio de replicas>500000 o alguna replica incontable '
+                '(sobre el techo del metodo); '
                 'binomio wps/nitrito en refrigerada y en bacon/wheel: libera si '
                 '(nitrito>=85 y wps>3.5) o nitrito>100; '
                 'vigencia=ultimo resultado que cubre el criterio, dentro de la misma '
@@ -73,7 +81,8 @@ where hasta is null
 insert into criterio_version (huella, parametros, motivo)
 select
   'listeria=refrigerada+congelada(EEUU|CostaRica); '
-  'ram promedio de replicas>500000; '
+  'ram promedio de replicas>500000 o alguna replica incontable '
+  '(sobre el techo del metodo); '
   'binomio wps/nitrito en refrigerada y en bacon/wheel: libera si '
   '(nitrito>=85 y wps>3.5) o nitrito>100; '
   'vigencia=ultimo resultado que cubre el criterio, dentro de la misma '
@@ -86,6 +95,9 @@ select
     'lim_ram', 500000,
     'ram_sobre', 'promedio de las replicas RAM1-RAM5 de la muestra; lo no numerico no '
                  'entra y el promedio se redondea a entero (igual que southwind_inocuidad)',
+    'ram_techo', 'una replica sobre el techo del metodo (incontable, >N, TNTC, INC, MNPC) '
+                 'hace no conforme a la muestra sea cual sea el promedio; <N queda fuera '
+                 'del promedio; vacio es sin dato',
     'lim_nitrito', 85,
     'nit_binomio', 100,
     'wps_min', 3.5,
@@ -114,13 +126,15 @@ select
                            'ninguna muestra: solo una decision firmada'),
   'Vigencia por unidad de laboratorio (R1: 8 candidatos con stock, 2.663 cajas, a '
   'bloqueado) y RAM 500.000 UFC/g sobre el promedio de replicas (especificacion SSCA, '
-  'igual que el dashboard de inocuidad). Juntos: 6 lotes a bloqueado (2.165 cajas), '
+  'igual que el dashboard de inocuidad), con una replica incontable como no conforme '
+  'sea cual sea el promedio (hoy ninguna). Juntos: 6 lotes a bloqueado (2.165 cajas), '
   '4 a liberado (902), 3 a candidato (199). Decidido por Calidad el 30/09/2026.'
 where not exists (
   select 1 from criterio_version
   where hasta is null
     and huella = 'listeria=refrigerada+congelada(EEUU|CostaRica); '
-                 'ram promedio de replicas>500000; '
+                 'ram promedio de replicas>500000 o alguna replica incontable '
+                 '(sobre el techo del metodo); '
                  'binomio wps/nitrito en refrigerada y en bacon/wheel: libera si '
                  '(nitrito>=85 y wps>3.5) o nitrito>100; '
                  'vigencia=ultimo resultado que cubre el criterio, dentro de la misma '
