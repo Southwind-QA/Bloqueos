@@ -7,6 +7,7 @@ Dos origenes de bloqueo con naturaleza distinta:
 Se acumulan: un lote con ambos necesita cerrar los dos.
 """
 import datetime
+import json
 import os
 import re
 import glob
@@ -191,7 +192,35 @@ lab["_FECHA"] = pd.to_datetime(lab["FECHA INGRESO"], errors="coerce")
 _lm = lab[LM].astype(str).apply(lambda c: c.str.strip().str.upper())
 lab["_LM_P"] = (_lm == "P").any(axis=1)
 lab["_LM_DATO"] = lab[LM].notna().any(axis=1)
-lab["_RAM_MAX"] = lab[RAM].apply(pd.to_numeric, errors="coerce").max(axis=1)
+
+def ram_promedio(d):
+    """RAM de cada muestra: el promedio de sus replicas, como lo exige el SSCA.
+
+    Replica exactamente lo que hace el dashboard de inocuidad
+    (southwind_inocuidad/parsers/reg08.py, RAM_mean): RAM1-RAM5 leidas como
+    numero, lo que no es numero -vacio, "<10", "incontable"- queda fuera, promedio
+    de lo que queda y redondeo a entero. Sin replicas numericas, NaN: sin dato.
+    Dos sistemas que leen la misma fila no pueden dar veredictos distintos.
+    """
+    return d[RAM].apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True).round(0)
+
+
+def ram_no_numericas(d):
+    """Replicas de RAM escritas pero no numericas. El promedio las ignora, igual
+    que el dashboard; si una dice "incontable" eso es la direccion permisiva, asi
+    que no se deja pasar en silencio."""
+    v = d[RAM].astype(str).apply(lambda c: c.str.strip())
+    num = d[RAM].apply(pd.to_numeric, errors="coerce")
+    raro = d[RAM].notna() & num.isna() & ~v.isin(["", "nan", "NaN", "None"])
+    return int(raro.sum().sum()), sorted({x for x in v[raro].stack()})[:5]
+
+
+lab["_RAM"] = ram_promedio(lab)
+_rn, _rx = ram_no_numericas(lab)
+if _rn:
+    print(f"  ATENCION RAM: {_rn} replica(s) escritas pero no numericas ({', '.join(_rx)}) "
+          "quedan fuera del promedio, como en el dashboard de inocuidad. Si alguna es "
+          "'incontable', revisar esa muestra a mano")
 _n = lab[NIT].apply(pd.to_numeric, errors="coerce")
 lab["_NIT"] = pd.to_numeric(lab["NITRITO PROMEDIO"], errors="coerce").fillna(_n.mean(axis=1))
 lab["_NIT_MIN"] = _n.min(axis=1)
@@ -321,14 +350,14 @@ if _MP_CRUDAS:
     mp["_LM_P"] = (_mlm == "P").any(axis=1)
     mp["_LM_DATO"] = mp[LM].notna().any(axis=1)
     mp["_LIS_APLICA"] = True          # en materia prima no hay destino que la exima
-    mp["_RAM_MAX"] = mp[RAM].apply(pd.to_numeric, errors="coerce").max(axis=1)
+    mp["_RAM"] = ram_promedio(mp)
     mp["_NIT"] = pd.NA                # la MP no trae nitrito ni WPS
     mp["_WPS"] = pd.NA
     mp["_NIT_APLICA"] = False
     mp = mp[mp["_L"].str.len() >= MIN_PROV]
 else:
     mp = pd.DataFrame(columns=["_L", "_FECHA", "_LM_P", "_LM_DATO", "_LIS_APLICA",
-                               "_RAM_MAX", "_NIT", "_WPS", "_NIT_APLICA", "OBSERVACIÓN"])
+                               "_RAM", "_NIT", "_WPS", "_NIT_APLICA", "OBSERVACIÓN"])
 
 # ------------------------------------------------- linea de proceso
 # El nitrito es un control de la linea REFRIGERADA: en la congelada el criterio no
@@ -609,7 +638,7 @@ def evalua(rows, criterios=None, desde=None):
         r["listeria"] = "NO APLICA"
     else:
         r["listeria"] = None
-    r["ram"] = rows["_RAM_MAX"].max() if rows["_RAM_MAX"].notna().any() else None
+    r["ram"] = rows["_RAM"].max() if rows["_RAM"].notna().any() else None
     r["nitrito"] = rows["_NIT"].min() if rows["_NIT"].notna().any() else None
     r["nit_min"] = rows["_NIT_MIN"].min() if rows["_NIT_MIN"].notna().any() else None
     r["wps"] = rows["_WPS"].min() if rows["_WPS"].notna().any() else None
@@ -636,7 +665,8 @@ def incumple(r, criterio):
     if criterio == "RAM":
         if r["ram"] is None:
             return False, True, "sin dato de RAM"
-        return r["ram"] > LIM_RAM, False, f"RAM {r['ram']:,.0f} UFC/g > {LIM_RAM:,}".replace(",", ".")
+        return r["ram"] > LIM_RAM, False, (f"RAM promedio {r['ram']:,.0f} UFC/g > "
+                                           f"{LIM_RAM:,}").replace(",", ".")
     if criterio == "NITRITO":
         if r["nitrito"] is None:
             return False, True, "sin dato de nitrito"
@@ -939,8 +969,11 @@ def firmada(clave, rows_lab, causas_vivas=()):
     f = d["_FECHA"]
     if pd.notna(f) and len(rows_lab):
         post = rows_lab[rows_lab["_FECHA"] > f]
+        # por unidad, igual que el veredicto: un no conforme posterior de una unidad
+        # supera la firma aunque despues llegue un conforme de OTRA unidad
+        _ap, _ = resume(post)
         for c in CRIT:
-            h = historia(post, c)
+            h = _ap[c]
             if h["estado"] == "NO CONFORME":
                 return None, (f"Liberacion firmada {d['ID']} del {f:%d/%m/%Y} SUPERADA: "
                               f"hay un resultado posterior no conforme ({h['txt']})")
@@ -998,7 +1031,7 @@ def con_dato(rows, c):
     if c == "LISTERIA":
         return rows[rows["_LM_DATO"]]
     if c == "RAM":
-        return rows[rows["_RAM_MAX"].notna()]
+        return rows[rows["_RAM"].notna()]
     return rows[rows["_NIT"].notna()]
 
 
@@ -1012,7 +1045,7 @@ def mide(rows, c):
     if c == "LISTERIA":
         return rows[rows["_LM_DATO"] & rows["_LIS_APLICA"]]
     if c == "RAM":
-        return rows[rows["_RAM_MAX"].notna()]
+        return rows[rows["_RAM"].notna()]
     return rows[rows["_NIT"].notna() & rows["_NIT_APLICA"]]
 
 
@@ -1034,7 +1067,7 @@ def _falla(row, c):
     if c == "LISTERIA":
         return bool(row["_LM_P"])
     if c == "RAM":
-        return pd.notna(row["_RAM_MAX"]) and row["_RAM_MAX"] > LIM_RAM
+        return pd.notna(row["_RAM"]) and row["_RAM"] > LIM_RAM
     return binomio(row["_NIT"], row["_WPS"])[0]
 
 
@@ -1042,8 +1075,16 @@ def _texto(row, c):
     if c == "LISTERIA":
         return "Listeria: PRESENCIA"
     if c == "RAM":
-        return f"RAM {row['_RAM_MAX']:,.0f} UFC/g > {LIM_RAM:,}".replace(",", ".")
+        k = int(pd.to_numeric(row[RAM], errors="coerce").notna().sum())
+        return (f"RAM promedio {row['_RAM']:,.0f} UFC/g de {k} replica(s) > "
+                f"{LIM_RAM:,}").replace(",", ".")
     return binomio(row["_NIT"], row["_WPS"])[1]
+
+
+# En que se cuenta la evidencia de cada criterio. La listeria son determinaciones
+# independientes; el RAM se decide sobre el promedio de las replicas de UNA
+# muestra, asi que su unidad es la muestra; el nitrito es una medicion por fila.
+UNIDAD = {"LISTERIA": "analisis", "RAM": "muestra(s)", "NITRITO": "medicion(es)"}
 
 
 def cuenta_analisis(rows, c):
@@ -1058,13 +1099,18 @@ def cuenta_analisis(rows, c):
 
     El nitrito y el WPS son otra cosa: sus tres columnas son replicas de UNA
     medicion fisicoquimica que se promedia, asi que ahi el analisis es la fila.
+
+    Y desde el 30/09/2026 el RAM tambien: la especificacion es sobre el promedio
+    de las replicas de la muestra, no sobre cada replica, asi que lo que falla o
+    cumple es la muestra. Contar replicas sobre el limite mostraria como no
+    conforme una replica que el promedio absuelve.
     """
     if c == "LISTERIA":
         v = rows[LM].astype(str).apply(lambda col: col.str.strip().str.upper())
         return int(v.isin(["A", "P"]).sum().sum()), int((v == "P").sum().sum())
     if c == "RAM":
-        v = rows[RAM].apply(pd.to_numeric, errors="coerce")
-        return int(v.notna().sum().sum()), int((v > LIM_RAM).sum().sum())
+        v = rows["_RAM"]
+        return int(v.notna().sum()), int((v > LIM_RAM).sum())
     return len(rows), int(rows.apply(lambda r: _falla(r, c), axis=1).sum()) if len(rows) else 0
 
 
@@ -1102,14 +1148,15 @@ def historia(rows, c, remuestrea=True):
     malo = m.apply(lambda r: _falla(r, c), axis=1)
     _n, _nm = cuenta_analisis(m, c)
     cuenta = {"n": _n, "n_mal": _nm, "n_muestras": len(m)}
-    _un = "analisis" if c in ("LISTERIA", "RAM") else "medicion(es)"
+    _un = UNIDAD[c]
     if not malo.any():
         return {**vacio, **cuenta, "estado": "CONFORME",
                 "txt": f"{c.title()} conforme en {_n} {_un}"
                        + (f" de {len(m)} muestra(s)" if len(m) != _n else "")}
     ult = m[malo].iloc[-1]
     post = m[m["_FECHA"] > ult["_FECHA"]]
-    de_n = f" ({_nm} de {_n} {_un} en {len(m)} muestra(s))"
+    de_n = (f" ({_nm} de {_n} {_un}"
+            + (f" en {len(m)} muestra(s))" if _un != "muestra(s)" else ")"))
     if remuestrea and len(post) and not post.apply(lambda r: _falla(r, c), axis=1).any():
         obs = " / ".join(sorted({str(v).strip() for v in post["OBSERVACIÓN"].dropna()}))[:60]
         return {**cuenta, "estado": "REMUESTREO CONFORME",
@@ -1121,29 +1168,78 @@ def historia(rows, c, remuestrea=True):
             "falla": ult["_FECHA"], "ok": pd.NaT, "n_post": len(post)}
 
 
+def _agrega(e, c, que):
+    """Estado de un criterio sobre varias partes: el peor vigente manda.
+
+    Basta UNA parte no conforme para que el conjunto lo sea. Solo si ninguna lo
+    es, un re-muestreo conforme deja el conjunto como candidato.
+    """
+    nc = [x for x in e if x["estado"] == "NO CONFORME"]
+    rc = [x for x in e if x["estado"] == "REMUESTREO CONFORME"]
+    if nc:
+        return {"estado": "NO CONFORME", "txt": "; ".join(sorted({x["txt"] for x in nc})),
+                "unidades": [u for x in nc for u in x.get("unidades", [])]}
+    if rc:
+        return {"estado": "REMUESTREO CONFORME",
+                "txt": "; ".join(sorted({x["txt"] for x in rc})), "unidades": []}
+    if any(x["estado"] == "CONFORME" for x in e):
+        n = sum(1 for x in e if x["estado"] == "CONFORME")
+        return {"estado": "CONFORME", "txt": f"{c.title()} conforme en {n} {que}",
+                "unidades": []}
+    if any(x["estado"] == "NO APLICA" for x in e):
+        na = [x for x in e if x["estado"] == "NO APLICA"]
+        return {"estado": "NO APLICA", "txt": "; ".join(sorted({x["txt"] for x in na})),
+                "unidades": []}
+    return {"estado": "SIN DATO", "txt": "", "unidades": []}
+
+
 def resume(rows):
-    """Estado por criterio de un conjunto de muestras, agregando sus batches."""
+    """Estado por criterio de un conjunto de muestras: unidad, batch y lote.
+
+    La vigencia se decide en la UNIDAD de laboratorio (_U, el lote con su sufijo
+    *SSD), no en el batch. Hasta el 30/09/2026 se agrupaba por _L, que corta el
+    sufijo, y cualquier conforme posterior del mismo lote base contaba como
+    re-muestreo: @2VQ2629250H*37V dio listeria en 1 de 5 y lo "cubrio" *39W, que es
+    otro producto de otro dia; @2VQ26292461D*37W lo cubrio *38W, de otro juliano.
+    Cada unidad lleva su propio lote juliano: un conforme de otra unidad no dice
+    nada de la que fallo, que es la trampa de la letra de batch otra vez. Y el
+    error iba siempre hacia liberar, en todos los criterios.
+
+    Asi que:
+      - cada unidad se evalua sola con historia(): solo sus propias muestras
+        posteriores conformes la llevan a REMUESTREO CONFORME;
+      - el batch y el lote agregan hacia lo estricto: si una unidad queda NO
+        CONFORME, el batch y el lote quedan NO CONFORME en ese criterio;
+      - una muestra SIN sufijo es una unidad aparte. No se puede saber a cual de
+        los dias corresponde, asi que no cierra a una unidad con sufijo, y una con
+        sufijo tampoco la cierra a ella. Degrada hacia bloquear.
+
+    El agregado contra el stock sigue siendo por lote base -Fishken no registra el
+    sufijo-, pero ahora agrega veredictos de unidades, no muestras sueltas.
+
+    Devuelve (agg por criterio, porbat {batch: {criterio: estado}}). Cada estado
+    NO CONFORME trae "unidades": [(unidad, fecha de la falla, texto)].
+    """
     if len(rows) == 0:
-        return {c: {"estado": "SIN DATO", "txt": ""} for c in CRIT}, {}
-    porbat = {b: {c: historia(g, c) for c in CRIT} for b, g in rows.groupby("_L")}
-    agg = {}
-    for c in CRIT:
-        e = [porbat[b][c] for b in porbat]
-        nc = [x for x in e if x["estado"] == "NO CONFORME"]
-        rc = [x for x in e if x["estado"] == "REMUESTREO CONFORME"]
-        if nc:
-            agg[c] = {"estado": "NO CONFORME", "txt": "; ".join(sorted({x["txt"] for x in nc}))}
-        elif rc:
-            agg[c] = {"estado": "REMUESTREO CONFORME",
-                      "txt": "; ".join(sorted({x["txt"] for x in rc}))}
-        elif any(x["estado"] == "CONFORME" for x in e):
-            n = sum(1 for x in e if x["estado"] == "CONFORME")
-            agg[c] = {"estado": "CONFORME", "txt": f"{c.title()} conforme en {n} batch(es)"}
-        elif any(x["estado"] == "NO APLICA" for x in e):
-            na = [x for x in e if x["estado"] == "NO APLICA"]
-            agg[c] = {"estado": "NO APLICA", "txt": "; ".join(sorted({x["txt"] for x in na}))}
-        else:
-            agg[c] = {"estado": "SIN DATO", "txt": ""}
+        return {c: {"estado": "SIN DATO", "txt": "", "unidades": []} for c in CRIT}, {}
+    poruni, bat_de = {}, {}
+    for u, g in rows.groupby("_U"):
+        bat_de[u] = g["_L"].iloc[0]
+        h = {}
+        for c in CRIT:
+            x = historia(g, c)
+            if x["estado"] in ("NO CONFORME", "REMUESTREO CONFORME") and "*" in u:
+                # el texto sube al lote: sin la unidad no se sabe cual dia fallo
+                x = {**x, "txt": f"{x['txt']} [{u}]"}
+            if x["estado"] == "NO CONFORME":
+                x = {**x, "unidades": [(u, x["falla"], x["txt"])]}
+            h[c] = x
+        poruni[u] = h
+    porbat = {}
+    for b in sorted(set(bat_de.values())):
+        us = [u for u in poruni if bat_de[u] == b]
+        porbat[b] = {c: _agrega([poruni[u][c] for u in us], c, "unidad(es)") for c in CRIT}
+    agg = {c: _agrega([porbat[b][c] for b in porbat], c, "batch(es)") for c in CRIT}
     return agg, porbat
 
 
@@ -1217,7 +1313,7 @@ def cuantos(rows, c):
     if not len(rows):
         return "sin analisis"
     n, mal = cuenta_analisis(mide(rows, c), c)
-    return f"{mal} de {n} analisis" if n else "sin analisis"
+    return f"{mal} de {n} {UNIDAD[c]}" if n else "sin analisis"
 
 
 def materia_prima(clave, rows_lab, aplica_lis=True):
@@ -1259,7 +1355,7 @@ def materia_prima(clave, rows_lab, aplica_lis=True):
             # decidir, y sin eso la pantalla solo repite que sigue bloqueado
             comp = "; ".join(
                 f"{c.title()} - materia prima: {est[c]['n_mal']} de {est[c]['n']} "
-                f"analisis; producto terminado: {cuantos(rows_lab, c)}" for c in malos)
+                f"{UNIDAD[c]}; producto terminado: {cuantos(rows_lab, c)}" for c in malos)
             # decir "sin re-muestreo conforme posterior" mandaba a esperar una muestra
             # que no va a llegar nunca: la materia prima desviada no se vuelve a
             # analizar. Lo que corresponde es decir con que SI se cierra.
@@ -1422,12 +1518,20 @@ for l in universo:
     causas_rem = [c for c in CRIT if agg[c]["estado"] == "REMUESTREO CONFORME"]
     motivos_lab = [agg[c]["txt"] for c in causas]
     motivos_rem = [agg[c]["txt"] for c in causas_rem]
+    # Cada unidad que sigue no conforme, con su criterio y la fecha de la falla. Es lo
+    # que el dialogo de firma muestra en rojo antes de firmar: si una unidad del lote
+    # no tiene re-muestreo propio, quien firma tiene que verlo con nombre y fecha,
+    # no enterrado en el texto del motivo.
+    unidades_nc = [{"unidad": u, "criterio": c,
+                    "fecha": f"{f:%Y-%m-%d}" if pd.notna(f) else None,
+                    "detalle": t}
+                   for c in CRIT for u, f, t in agg[c].get("unidades", [])]
     r, _ = evalua(rows_lab)   # solo para los valores que se muestran en columnas
 
     # Trazabilidad de la liberacion: por que quedo liberado, criterio por criterio.
     por_crit = "; ".join(f"{c}={agg[c]['estado']}" for c in CRIT)
     _con = mide(rows_lab, "LISTERIA")
-    _mu = rows_lab[rows_lab["_LM_DATO"] | rows_lab["_RAM_MAX"].notna() | rows_lab["_NIT"].notna()]
+    _mu = rows_lab[rows_lab["_LM_DATO"] | rows_lab["_RAM"].notna() | rows_lab["_NIT"].notna()]
     evidencia = ", ".join(
         f"lab {cod_lab(x['CÓDIGO LAB'])} del {x['_FECHA']:%d/%m/%Y}"
         for _, x in _mu.sort_values("_FECHA").tail(4).iterrows()
@@ -1512,7 +1616,7 @@ for l in universo:
                 # tamano de la evidencia no alcanza para decidir una firma
                 _det = "; ".join(
                     f"{c.title()} conforme en {cuenta_analisis(mide(_post, c), c)[0]} "
-                    f"analisis" for c in sorted(mp_crit))
+                    f"{UNIDAD[c]}" for c in sorted(mp_crit))
                 propuestas.append(
                     f"Materia prima: el producto terminado tiene {len(_post)} muestra(s) "
                     f"posterior(es) al {mp_falla:%d/%m/%Y} y {_det}, que es lo que la "
@@ -1752,6 +1856,8 @@ for l in universo:
         "NITRITO PROM. MIN (ppm)": r["nitrito"],
         "WPS MIN (%)": r["wps"],
         "A/R NITRITO (lab)": r["ar"],
+        "UNIDADES NO CONFORMES": (json.dumps(unidades_nc, ensure_ascii=False)
+                                  if unidades_nc else ""),
         "BATCHES CON RESULTADO": len(batches),
         "BATCHES NO CONFORMES": "; ".join(f"{b[len(l):] or '(base)'}: {', '.join(v)}"
                                           for b, v in malos_bat.items()),
@@ -2096,7 +2202,7 @@ for i in range(len(res)):
 
 ws["A1"] = "CRUCE DE BLOQUEOS - STOCK x LAB-REG-08 2026 x REGISTRO DE DETENCIONES"
 ws["A2"] = (f"Laboratorio (derivado, se recalcula): Listeria PRESENCIA en toda linea | "
-            f"RAM > {LIM_RAM:,} UFC/g en toda linea | Binomio WPS/nitrito: libera si "
+            f"RAM promedio de replicas > {LIM_RAM:,} UFC/g en toda linea | Binomio WPS/nitrito: libera si "
             f"nitrito >= {LIM_NITRITO} ppm CON WPS > {WPS_MIN}%, o si el nitrito supera "
             f"{NIT_BINOMIO} ppm por si solo; bajo {LIM_NITRITO} ppm bloquea aunque el WPS "
             "sobre, y sin WPS medido no se puede acreditar. SOLO en linea refrigerada y en "
@@ -2105,7 +2211,8 @@ ws["A2"] = (f"Laboratorio (derivado, se recalcula): Listeria PRESENCIA en toda l
             "Listeria SOLO en linea refrigerada y en congelada con destino EE.UU. o "
             "Costa Rica (cliente con PMT); si el destino no se puede determinar, se aplica. "
             "Un criterio deja de estar vigente si hay re-muestreo posterior conforme que vuelva "
-            "a medirlo. Detencion (declarada por correo) y detencion historica "
+            "a medirlo en la MISMA unidad (lote con su sufijo *SSD): un conforme de otra unidad no "
+            "la cierra, y una unidad no conforme deja no conforme al lote. Detencion (declarada por correo) y detencion historica "
             "(Bloqueo 2026.xlsm, donde el Estado se escribe solo al liberar): bloquean aunque "
             "no haya resultado, cada uno por su motivo.")
 ws["A3"] = ("Los tres origenes se acumulan: un lote con varios debe cerrarlos todos. La columna de propuesta "

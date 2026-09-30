@@ -115,7 +115,7 @@ Viven en [`config.py`](config.py). Cambiarlos ahí es visible en el diff, que es
 
 | Criterio | Dónde aplica |
 |---|---|
-| **RAM** > 100.000 UFC/g | Toda línea |
+| **RAM** > 500.000 UFC/g, sobre el **promedio de réplicas** de la muestra | Toda línea |
 | **Binomio WPS/nitrito** | Refrigerada, **más bacon y wheel** (salen congelados pero se venden refrigerados en destino) |
 | **Listeria** presencia | Refrigerada siempre; congelada solo con destino **EE.UU. o Costa Rica** |
 
@@ -126,7 +126,46 @@ solo faltaba leerlo.
 
 Un criterio **deja de estar vigente** solo si hay muestras posteriores que vuelven a
 medir *ese mismo criterio* y salen conformes. Una muestra posterior que no midió lo que
-falló no es evidencia de nada.
+falló no es evidencia de nada. Y desde el 30/09/2026 esas muestras tienen que ser **de
+la misma unidad de laboratorio** —el lote con su sufijo `*SSD`—: un conforme de otra
+unidad no cierra la que falló.
+
+### Dos decisiones del 30/09/2026
+
+**La vigencia se decide por unidad, no por lote base.** El veredicto por unidad ya
+agrupaba con el sufijo, pero el del lote (`resume()`) agrupaba por el código sin él, así
+que `historia()` tomaba cualquier conforme posterior del mismo lote base como
+re-muestreo. `@2VQ2629250H*37V` dio listeria en 1 de 5 y lo «cubrió» `*39W`, otro
+producto de otro día; `@2VQ26292461D*37W` lo cubrió `*38W`, de otro juliano. El mismo
+motor respondía distinto en los dos niveles, y el lote era el que llegaba a la firma.
+Ahora cada unidad se evalúa sola, y basta una unidad no conforme para que el lote lo
+sea en ese criterio. Una muestra **sin sufijo** es una unidad aparte: no se sabe a qué
+día corresponde, así que no cierra a una con sufijo ni la cierra una con sufijo. Contra
+el stock se sigue agregando por lote base, porque Fishken no registra el sufijo. El
+contraargumento es que se bloquea de más cuando el laboratorio re-muestrea bien pero
+anota otro sufijo; se aceptó porque ese error se corrige escribiendo bien el código, y
+el contrario —liberar la unidad positiva con el conforme de otra— no se ve nunca.
+Efecto sobre la foto del 30/09: 8 candidatos con stock (2.663 cajas) pasan a bloqueado
+por esta regla sola. El diálogo de firma muestra en rojo cualquier unidad del lote que
+siga no conforme (`lote.unidades_no_conformes`), como defensa en profundidad: con la
+regla, esos lotes ya no deberían llegar a candidato. No impide firmar.
+
+**RAM: 500.000 UFC/g sobre el promedio de réplicas.** Es la especificación vigente del
+SSCA y la que aplica el dashboard de inocuidad (`parsers/reg08.py`). Aquí se exigían
+100.000 a cada réplica, y los dos sistemas daban veredictos distintos sobre la misma
+fila: `@2VQ26292472K*39L`, con réplicas 163.000 / 25.000 / 38.000, quedaba bloqueado en
+uno y conforme en el otro. El promedio se calcula igual que allá, para que la norma no
+quede escrita dos veces: lo que no es número (vacío, `<10`, «incontable») no entra y el
+promedio se redondea a entero. Eso tiene un flanco permisivo —una réplica
+«incontable» no sube el promedio—; hoy no hay ninguna, y el motor lo avisa en consola si
+aparece. La evidencia de RAM se cuenta ahora en muestras, no en réplicas. Efecto: 55
+muestras de producto terminado que fallaban por una réplica pasan a conformes; 94
+siguen sobre el límite. Ninguna materia prima cambia.
+
+Las dos van en una sola versión de criterios (migración
+`20260930120000_bloqueos_criterio_unidad_y_ram_promedio.sql`). Juntas, sobre la misma
+foto: 6 lotes a bloqueado (2.165 cajas), 4 a liberado (902), 3 a candidato (199), y los
+candidatos con stock bajan de 100 a 95.
 
 **Destino:** EE.UU. se detecta por cliente (`LLC`, `INC`, Echo Falls, Slade Gorton,
 Ocean Sky, Global Star) o por producto (wheel, bacon, cold smoked, sliced…).
@@ -158,13 +197,15 @@ Todas se descubrieron rompiendo algo. No las deshagas.
   esos no tienen forma de lote y quedan fuera del veredicto, o aparecen en el listado de
   bloqueados como si fueran producto.
 - **El sufijo `*NNL` NO es descartable, aunque se creyó que sí durante meses.** Es semana
-  y turno de producción —coincide con la semana ISO de la fecha en el 98% de las muestras—
+  y día de producción —coincide con la semana ISO de la fecha en el 98% de las muestras—
   y cada uno lleva su propio `LOTE JULIANO`. `@2CK26621761E*28V`, `*29L` y `*29W` son el 10,
   el 13 y el 15 de julio: solo el último salió con nitrito bajo. Descartarlo fusionaba días
   distintos y bastaba que el último fallara para bloquear a los anteriores. Hay **144 bases
   con unos sufijos conformes y otros no**. Contra el stock hay que seguir agregando —Fishken
   no registra el sufijo— pero cuando el packing list trae el código completo se responde por
-  esa unidad.
+  esa unidad. Y la vigencia se decide en la unidad también a nivel de lote: hasta el
+  30/09/2026 el lote la decidía sin sufijo, y un conforme de otro día cerraba la listeria
+  de la unidad que falló (ver la sección 3).
 - **Una muestra posterior conforme de la MISMA materia prima no es un re-muestreo.**
   El código es el lote del **proveedor**, y cubre varios pallets y varias recepciones.
   Los cuatro casos que el motor leía como re-muestreo lo prueban: `26050004` tiene las
@@ -289,6 +330,7 @@ fallar en silencio.
 | Leer las filas sin estado como si no existieran | 18.221 cajas figuraban liberadas, 11.551 de ellas declaradas por listeria | Una columna vacía es un dato: hay que averiguar qué convención la deja vacía antes de ignorarla |
 | Leer "vida útil transcurrida" como producto vencido | Lo dijo Calidad revisando los mensajes en pantalla | Un motivo escrito a mano hay que traducirlo con quien lo escribe, no inferirlo del castellano. El motor decía "no se mide en laboratorio" justo del motivo que **solo** se cierra con laboratorio |
 | La hoja `FUENTES` declaraba el total en cada archivo | Los cuatro `PRO-REG-46` decían 466 registros y la misma ventana de fechas, exactos | La hoja que existe para declarar cobertura parcial la estaba inflando cuatro veces. El número era el de las muestras de MP del laboratorio, que no salen de esos archivos: la fila se los prestaba. **Una cifra repetida idéntica en varias filas es un síntoma, no una coincidencia** |
+| El lote decidía la vigencia sin el sufijo, la unidad con él | El cuarto revisor, el 30/09/2026: `@2VQ2629250H*37V` positivo, «cubierto» por `*39W` de otro producto y otro día, y el lote en candidato | Una regla escrita bien en un nivel no protege si el otro nivel la reimplementa. La trampa de la letra de batch, una tercera vez |
 | Aplicar la regla de re-muestreo del producto a la materia prima | Calidad dijo "nunca haremos un re-muestreo a una materia prima desviada por listeria", y el `PRO-REG-46` lo confirmó: eran otros pallets | **Un veredicto correcto por un argumento falso sigue siendo un error.** No movió ni un lote —los 9 afectados ya se sostenían con los análisis del producto terminado— pero el motor le mostraba a quien firma una evidencia inexistente, y el próximo caso sin cobertura del terminado se habría liberado solo |
 
 ---
@@ -325,8 +367,12 @@ fallar en silencio.
 
 **Trabajo pendiente:**
 
+- Aplicar a mano en el SQL Editor, **antes del merge** de la rama
+  `fix/lote-por-unidad-y-ram`: **`20260930120000_bloqueos_criterio_unidad_y_ram_promedio.sql`**
+  (versión 5 de criterios y la columna `lote.unidades_no_conformes`). Sin ella el
+  cargador aborta por huella.
 - Aplicar a mano en el SQL Editor: **`20260818120000_bloqueos_puede_firmar.sql`**, la
-  única pendiente. Todas las anteriores están aplicadas, incluida
+  otra pendiente. Todas las anteriores están aplicadas, incluida
   `20260811150000_bloqueos_cajas_por_destino.sql` —que este documento daba por
   pendiente— y la huella de `config.py` calza con la versión 4 de `criterio_version`:
   verificado el 18/08/2026 contra la base.

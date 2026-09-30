@@ -13,6 +13,7 @@ una clave de servicio, el GRANT deja de protegerlo: no lo hagas.
 
 La cadena de conexion sale de la variable de entorno. Nunca del codigo.
 """
+import json
 import os
 import sys
 
@@ -127,9 +128,9 @@ with psycopg.connect(URL, autocommit=False) as cx:
                  liberacion_declarada, mercados_liberados, fuente_liberacion, en_stock,
                  bodegas, productos, clientes, cajas, kg, piezas,
                  batches_con_resultado, batches_no_conformes, n_muestras, ultima_muestra,
-                 wps, propuesta, observaciones, corrida_id)
+                 wps, propuesta, observaciones, unidades_no_conformes, corrida_id)
                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             [(txt(r["LOTE"]), txt(r["LOTE (normalizado)"]), txt(r["ESTADO"]),
               txt(r["ORIGEN DEL BLOQUEO"]), lista(r["CAUSAS LAB"]),
               lista(r["CAUSAS CON REMUESTREO CONFORME"]), txt(r["MOTIVO - LABORATORIO"]),
@@ -149,7 +150,10 @@ with psycopg.connect(URL, autocommit=False) as cx:
               ent(r["BATCHES CON RESULTADO"]), txt(r["BATCHES NO CONFORMES"]),
               ent(r["N MUESTRAS LAB"]), fecha(r["ULTIMA MUESTRA LAB"]),
               num(r["WPS MIN (%)"]), txt(r["PROPUESTA DE LIBERACION (no libera)"]),
-              txt(r["OBSERVACIONES"]), corrida) for _, r in res.iterrows()])
+              txt(r["OBSERVACIONES"]),
+              # las unidades que siguen no conformes, para el aviso del dialogo de firma
+              psycopg.types.json.Jsonb(json.loads(txt(r.get("UNIDADES NO CONFORMES")) or "[]")),
+              corrida) for _, r in res.iterrows()])
         print("  lote:", len(res))
 
         cur.executemany(

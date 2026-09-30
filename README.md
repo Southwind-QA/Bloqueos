@@ -105,7 +105,7 @@ visible en el diff y no haya que leer el motor.
 
 | Criterio | Dónde aplica |
 |---|---|
-| **RAM** > 100.000 UFC/g | Toda línea, sin excepciones |
+| **RAM** > 500.000 UFC/g, sobre el promedio de réplicas (como el dashboard de inocuidad) | Toda línea, sin excepciones |
 | **Binomio WPS/nitrito** | Línea refrigerada, **más bacon y wheel** (salen congelados de planta pero se venden refrigerados en destino) |
 | **Listeria** presencia | Línea refrigerada siempre; línea congelada solo si el destino es **EE.UU. o Costa Rica** |
 
@@ -145,8 +145,10 @@ Tres reglas transversales:
 
 1. **Un criterio deja de estar vigente** solo si hay muestras posteriores que
    vuelven a medir *ese mismo criterio* y salen conformes. Una muestra posterior
-   que no midió lo que falló no es evidencia de nada. Cuando eso ocurre el lote
-   queda **CANDIDATO A LIBERAR**, no liberado: el sistema propone, Calidad firma.
+   que no midió lo que falló no es evidencia de nada, y tampoco lo es un conforme de
+   otra unidad (otro sufijo `*SSD`): una unidad no conforme deja no conforme al lote.
+   Cuando el re-muestreo propio sale conforme, el lote queda **CANDIDATO A
+   LIBERAR**, no liberado: el sistema propone, Calidad firma.
 2. **Si el destino o la línea no se pueden determinar, el criterio se aplica.**
    No se exime nada por falta de información.
 3. **NO APLICA ≠ SIN DATO.** En un caso se midió y se decidió no exigirlo; en el

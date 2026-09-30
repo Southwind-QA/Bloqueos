@@ -27,7 +27,19 @@ leer_env.al_entorno()
 BASE = os.environ.get("BLOQUEOS_DIR") or os.path.dirname(os.path.abspath(__file__))
 
 # ------------------------------------------------------------------ limites
-LIM_RAM = 100_000          # UFC/g. Se supera -> bloquea. Aplica a toda linea.
+# RAM: 500.000 UFC/g sobre el PROMEDIO de las replicas de cada muestra. Se supera
+# -> bloquea. Aplica a toda linea. Es la especificacion vigente del SSCA y la
+# misma que aplica el dashboard de inocuidad (southwind_inocuidad, parsers/reg08.py):
+# hasta el 30/09/2026 aca se exigia 100.000 a cada replica por separado, y los dos
+# sistemas daban veredictos distintos sobre la misma fila del LAB-REG-08.
+#
+# El promedio se calcula igual que alla, para que no haya dos normas escritas:
+# replicas RAM1-RAM5 leidas como numero; lo que no es numero (vacio, "<10",
+# "incontable") no entra al promedio, y el promedio se redondea a entero antes
+# de comparar. Una muestra sin ninguna replica numerica es "sin dato de RAM".
+# Que "incontable" quede fuera del promedio es la direccion permisiva; hoy no hay
+# ninguna replica asi, y el motor avisa en consola si aparece (ver cruce2.py).
+LIM_RAM = 500_000
 
 # Binomio WPS / nitrito. Ninguno de los dos por si solo decide: lo que controla
 # Listeria en el ahumado es la combinacion de sal en fase acuosa y nitrito.
@@ -64,6 +76,13 @@ MIN_LOTE = 8
 # Un criterio deja de estar vigente unicamente si hay muestras POSTERIORES que
 # vuelven a medir ESE criterio y salen conformes. Una muestra posterior que no
 # midio lo que fallo no es evidencia de nada.
+#
+# Y esas muestras posteriores tienen que ser de la MISMA unidad de laboratorio:
+# el lote con su sufijo *SSD (semana y dia), que lleva su propio lote juliano.
+# Un conforme de otra unidad es otro producto u otro dia, no el re-muestreo del
+# que fallo. Si una unidad del lote queda no conforme, el lote queda no conforme
+# en ese criterio. Una muestra sin sufijo es una unidad aparte: no cierra a una
+# con sufijo ni la cierra una con sufijo, porque no hay como saber si es la misma.
 
 # Clientes de destino EE.UU. Se detectan por razon social.
 US_CLI = r"\bLLC\b|\bINC\b|ECHO FALLS|SLADE GORTON|OCEAN SKY|GLOBAL STAR"
@@ -179,10 +198,13 @@ def ruta(*partes):
 # Huella de los criterios vigentes. Cambia cuando cambia una regla, y eso es lo
 # que permite distinguir "cambio el resultado" de "cambiamos la norma".
 def huella_criterios():
-    return (f"listeria=refrigerada+congelada(EEUU|CostaRica); ram>{LIM_RAM}; "
+    return (f"listeria=refrigerada+congelada(EEUU|CostaRica); "
+            f"ram promedio de replicas>{LIM_RAM}; "
             f"binomio wps/nitrito en refrigerada y en bacon/wheel: libera si "
             f"(nitrito>={LIM_NITRITO} y wps>{WPS_MIN}) o nitrito>{NIT_BINOMIO}; "
-            "vigencia=ultimo resultado que cubre el criterio; "
+            "vigencia=ultimo resultado que cubre el criterio, dentro de la misma "
+            "unidad de laboratorio (lote con su sufijo *SSD; sin sufijo es unidad "
+            "propia); "
             "detencion historica=bloquea por su motivo hasta liberacion declarada; "
             "vida util transcurrida=se cierra con RAM conforme posterior; "
             "materia prima=no caduca por muestra posterior del mismo lote de proveedor")
