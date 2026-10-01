@@ -592,7 +592,13 @@ const ORD = {'PNC':0,'BLOQUEADO':1,'CANDIDATO A LIBERAR':2,'SIN ANALISIS':3,
 // dos letras de planta y al menos cuatro digitos. Sin esta puerta, una fecha como
 // 01/07/2026 se normaliza a 01072026 y calza como si fuera un lote.
 const RX_LOTE = /^[@B]?\d[A-Z]{2}\d{4,}/;
-const esLote = tok => RX_LOTE.test(norm(tok)) && norm(tok).length >= MIN;
+// Lotes de recorte y despunte mensual (CAL-PRO-07): [B][@] + sigla + anio + juliano,
+// 7 caracteres (SW26098). Es la misma forma que config.LOTE_CORTO del motor: un lote
+// corto solo calza por igualdad, nunca por prefijo.
+const RX_CORTO = /^B?@?[A-Z]{2}\d{2}(?:00[1-9]|0[1-9]\d|[12]\d\d|3[0-5]\d|36[0-6])$/;
+const formaLote = n => (RX_LOTE.test(n) && n.length >= MIN) || RX_CORTO.test(n);
+const hijoDe = (n, q) => q.length >= MIN ? n.startsWith(q) : (n === q || n.startsWith(q + '*'));
+const esLote = tok => formaLote(norm(tok));
 
 function resolver(tok){
   const q = norm(tok); if(!esLote(tok)) return null;
@@ -607,7 +613,7 @@ function resolver(tok){
   // startsWith(q) incluye al propio q: si el laboratorio tiene un registro sin letra
   // de batch, no debe tapar a los batches del mismo lote. Con descendientes, la
   // respuesta correcta es el agregado; solo si esta solo es un match exacto.
-  const hijos = B.filter(x => x.n.startsWith(q)).sort((a,b)=>ORD[a.estado]-ORD[b.estado]);
+  const hijos = B.filter(x => hijoDe(x.n, q)).sort((a,b)=>ORD[a.estado]-ORD[b.estado]);
   if(hijos.length === 1 && hijos[0].n === q) return {nivel:'EXACTO', hits:hijos};
   if(hijos.length) return {nivel:'LOTE BASE', hits:hijos};
   // El ancestro tambien tiene que ser un codigo de lote completo: el laboratorio
@@ -633,15 +639,16 @@ function resolverLinea(toks){
 }
 function detsDe(q){
   return D.det.filter(d => {const m = norm(d['LOTE']);
-    return m.length >= MIN && (q.startsWith(m) || m.startsWith(q)) &&
+    return ((m.length >= MIN && (q.startsWith(m) || m.startsWith(q))) || (m === q && RX_CORTO.test(m))) &&
       (d['ESTADO'] === 'ABIERTA' || d['ESTADO'] === 'PNC');});
 }
 // El veredicto por batch es puro laboratorio: no sabe nada de las detenciones historicas
 // ni de la materia prima. Un lote bloqueado por esos origenes, con lab conforme,
 // saldria LIBERADO si la consulta mirara solo los batches.
 function opesDe(q){
-  return q.length < MIN ? [] : L.filter(o => (o.ope || o.mp) && o.n.length >= MIN &&
-    (q.startsWith(o.n) || o.n.startsWith(q)));
+  return !(q.length >= MIN || RX_CORTO.test(q)) ? [] : L.filter(o => (o.ope || o.mp) &&
+    ((o.n.length >= MIN && q.length >= MIN && (q.startsWith(o.n) || o.n.startsWith(q)))
+     || (o.n === q && RX_CORTO.test(q))));
 }
 function parecidos(tok){
   const bare = x => x.replace(/^[@B]/,''), raiz = bare(norm(tok)).slice(0,9);
@@ -755,7 +762,7 @@ function correr(){
   const out = [];
   for(const linea of document.getElementById('pl').value.split(/\r?\n/)){
     if(!linea.trim()) continue;
-    const toks = linea.split(/[\t,;|\s]+/).filter(t => t.length >= MIN);
+    const toks = linea.split(/[\t,;|\s]+/).filter(esLote);
     const rl = resolverLinea(toks);
     out.push({linea: linea, usado: rl.cand, r: rl.best,
               dts: rl.cand ? detsDe(norm(rl.cand)) : [],
@@ -1098,8 +1105,8 @@ const mini = (h, r) => r.length ? '<table class="mini"><thead><tr>'+
   h.map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+
   r.map(f=>'<tr>'+f.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</tbody></table>' : '';
 
-const emparenta = (a, b) => a.length>=MIN && b.length>=MIN &&
-  (a.startsWith(b) || b.startsWith(a));
+const emparenta = (a, b) => (a.length>=MIN && b.length>=MIN &&
+  (a.startsWith(b) || b.startsWith(a))) || (a === b && RX_CORTO.test(a));
 const batchesDe = n => B.filter(x => emparenta(x.n, n));
 const detsDeLote = n => D.det.filter(d => emparenta(norm(d['LOTE']), n));
 const cambiosDe = k => D.cambios.filter(x => x.clave === k);

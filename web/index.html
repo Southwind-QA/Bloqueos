@@ -517,7 +517,13 @@ const norm = s => String(s).trim().toUpperCase().split('*')[0].replace(/[^A-Z0-9
 // Solo se descarta contra el stock, que no lo registra.
 const normU = s => String(s).trim().toUpperCase().replace(/[^A-Z0-9@*]/g,'');
 const RX_LOTE = /^[@B]?\d[A-Z]{2}\d{4,}/;
-const esLote = t => RX_LOTE.test(norm(t)) && norm(t).length >= MIN;
+// Lotes de recorte y despunte mensual (CAL-PRO-07): [B][@] + sigla + anio + juliano,
+// 7 caracteres (SW26098). Es la misma forma que config.LOTE_CORTO del motor: un lote
+// corto solo calza por igualdad, nunca por prefijo.
+const RX_CORTO = /^B?@?[A-Z]{2}\d{2}(?:00[1-9]|0[1-9]\d|[12]\d\d|3[0-5]\d|36[0-6])$/;
+const formaLote = n => (RX_LOTE.test(n) && n.length >= MIN) || RX_CORTO.test(n);
+const hijoDe = (n, q) => q.length >= MIN ? n.startsWith(q) : (n === q || n.startsWith(q + '*'));
+const esLote = t => formaLote(norm(t));
 const $ = id => document.getElementById(id);
 window.tema = () => {const r=document.documentElement;
   const d=r.dataset.theme||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
@@ -1162,16 +1168,17 @@ async function traerTodo(tabla, pagina = 1000){
 
 const tiles = a => '<div class="tiles">'+a.map(([k,v])=>
   `<div class="tile"><b>${typeof v==='number'?nf(v):esc(v)}</b><span>${esc(k)}</span></div>`).join('')+'</div>';
-const emparenta = (a,b) => a && b && a.length>=MIN && b.length>=MIN && (a.startsWith(b)||b.startsWith(a));
+const emparenta = (a,b) => a && b && (a.length>=MIN && b.length>=MIN
+  ? (a.startsWith(b)||b.startsWith(a)) : (a===b && RX_CORTO.test(a)));
 const causasDe = o => (o.causas||[]).concat(o.motivo_detencion?['DETENCION']:[])
   .concat(o.motivo_operativo?['REGISTRO']:[]).concat(o.motivo_mp?['MATERIAPRIMA']:[]);
 // El laboratorio no sabe nada dla detención histórica: sin esto un lote bloqueado por
 // correo con laboratorio conforme saldria LIBERADO en la consulta de packing list.
-const opesDe = q => q && q.length>=MIN
+const opesDe = q => q && (q.length>=MIN || RX_CORTO.test(q))
   ? L.filter(o=>(o.motivo_operativo||o.motivo_mp) && emparenta(o.normalizado, q)) : [];
 // El lote al que pertenece un codigo del packing list, para leer lo que el motor
 // decidio sobre el: el reparto de cajas y si el bloqueo depende solo del destino.
-const loteDe = q => q && q.length>=MIN ? L.find(o=>emparenta(o.normalizado, q)) : null;
+const loteDe = q => q && (q.length>=MIN || RX_CORTO.test(q)) ? L.find(o=>emparenta(o.normalizado, q)) : null;
 
 function porque(o){
   let h = '';
@@ -1215,7 +1222,7 @@ function resolver(tok){
     const exacto = B.filter(x => x.normalizado === u);
     if(exacto.length) return {nivel:'EXACTO', hits:exacto};
   }
-  const hijos = B.filter(x=>x.normalizado.startsWith(q)).sort((a,b)=>ORD[a.estado]-ORD[b.estado]);
+  const hijos = B.filter(x=>hijoDe(x.normalizado, q)).sort((a,b)=>ORD[a.estado]-ORD[b.estado]);
   if(hijos.length===1 && hijos[0].normalizado===q) return {nivel:'EXACTO', hits:hijos};
   if(hijos.length) return {nivel:'LOTE BASE', hits:hijos};
   const padres = B.filter(x=>x.normalizado.length>=MIN && RX_LOTE.test(x.normalizado)
@@ -1306,7 +1313,7 @@ window.correr = () => {
   const out = [];
   for(const linea of $('pl').value.split(/\r?\n/)){
     if(!linea.trim()) continue;
-    const toks = linea.split(/[\t,;|\s]+/).filter(t=>t.length>=MIN).filter(esLote);
+    const toks = linea.split(/[\t,;|\s]+/).filter(esLote);
     let r=null, cand='';
     for(const t of toks){const m=resolver(t); if(m){r=m; cand=t; break;}}
     if(!r) cand = toks[0]||'';
