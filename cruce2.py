@@ -70,6 +70,12 @@ def emparenta(a, b):
     return a.startswith(b) or b.startswith(a)
 
 
+# Si un codigo base tiene forma de lote: el largo minimo, o la forma explicita de
+# los lotes de recorte y despunte mensual (SW26098, 7 caracteres). Ver
+# config.LOTE_CORTO. Un lote corto solo se empareja por igualdad (emparenta).
+es_lote = config.es_lote
+
+
 # ----------------------------------------------------------------- STOCK (N bodegas)
 marcos = []
 for f in sorted(glob.glob(os.path.join(BASE, "*.xlsx"))):
@@ -354,7 +360,7 @@ for _a, f in sorted(_el46.items()):
             _ap46[n46]["fechas"].append(pd.to_datetime(d46[_c_rec], errors="coerce"))
         for _, x in d46[d46["lote proveedor"].notna() & d46["Lote SW"].notna()].iterrows():
             sw = norm(x["Lote SW"])
-            if len(sw) < MIN_LOTE:
+            if not es_lote(sw):
                 continue
             for p in lotes_prov(x["lote proveedor"]):
                 MP_DE_SW.setdefault(sw, set()).add(laxo_prov(p))
@@ -424,8 +430,9 @@ def _linea_muestra(i, l):
         return "REFRIGERADA"
     if "carpaccio" in t or "congelad" in t:
         return "CONGELADA"
-    base = next((x for x in _LOTES_ST if len(x) >= MIN_LOTE
-                 and (l.startswith(x) or x.startswith(l))), None)
+    # emparenta y no un prefijo suelto: un lote corto (SW26107) solo calza por
+    # igualdad; con prefijo calzaria con cualquier lote que empiece igual
+    base = next((x for x in _LOTES_ST if es_lote(x) and emparenta(x, l)), None)
     return linea_stock(base) if base else ""
 
 
@@ -523,8 +530,7 @@ def _bw(i, l):
     """Bacon o wheel, segun el texto del laboratorio o el producto en bodega."""
     if BACON_WHEEL.search(_txt.iloc[i]):
         return True
-    base = next((x for x in _LOTES_ST if len(x) >= MIN_LOTE
-                 and (l.startswith(x) or x.startswith(l))), None)
+    base = next((x for x in _LOTES_ST if es_lote(x) and emparenta(x, l)), None)
     return bool(base and BACON_WHEEL.search(_cli.loc[base, "nom"]))
 
 
@@ -538,8 +544,7 @@ print(f"  bacon/wheel: {int(lab['_BW'].sum())} muestras se evaluan como refriger
 def _restr_muestra(i, l):
     if US_PROD.search(_txt.iloc[i]):
         return "EE.UU."
-    base = next((x for x in _LOTES_ST if len(x) >= MIN_LOTE
-                 and (l.startswith(x) or x.startswith(l))), None)
+    base = next((x for x in _LOTES_ST if es_lote(x) and emparenta(x, l)), None)
     return destino_restringido(base)
 
 
@@ -565,6 +570,48 @@ COLS_DET = ["ID", "FECHA CORREO", "EMITIDO POR", "ASUNTO / REFERENCIA",
             "TIPO DE DESVIACION", "DESCRIPCION", "LOTE", "PRODUCTO", "ALCANCE",
             "CANTIDAD AFECTADA (KG)", "FECHA DEL EVENTO", "RESOLUCION",
             "CRITERIOS DE LIBERACION", "ESTADO"]
+
+
+CRITERIOS_DB = ("LISTERIA", "RAM", "NITRITO")     # el enum criterio de la base
+
+
+def lee_criterios(v):
+    """(criterios reconocidos, textos no reconocidos) de CRITERIOS DE LIBERACION.
+
+    La columna es criterio[] en Postgres, un enum propio, y psycopg no sabe
+    convertir un arreglo de un tipo que no conoce: llega como TEXTO con forma de
+    arreglo, '{LISTERIA,RAM}'. El motor partia por ';', no reconocia
+    '{LISTERIA,RAM}' como criterio y ninguna detencion de la base se podia cerrar
+    contra el laboratorio. Se acepta lo que pueda llegar: lista o tupla, arreglo de
+    Postgres ('{LISTERIA,RAM}', '{"RAM"}', '{}'), JSON ('["RAM"]') o el texto del
+    xlsx historico ('LISTERIA; RAM'). Mayusculas y espacios no importan.
+
+    Un texto que no es un criterio conocido NO se descarta: se devuelve aparte y
+    deja la detencion vigente, porque no se puede acreditar que se midio.
+    """
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return [], []
+    if isinstance(v, (list, tuple, set, np.ndarray)):
+        partes = [str(x) for x in v]
+    else:
+        t = str(v).strip()
+        if t.startswith("[") and t.endswith("]"):
+            try:
+                j = json.loads(t)
+                partes = [str(x) for x in j] if isinstance(j, list) else [t]
+            except ValueError:
+                partes = re.split(r"[;,]", t[1:-1])
+        elif t.startswith("{") and t.endswith("}"):
+            partes = t[1:-1].split(",")
+        else:
+            partes = re.split(r"[;,]", t)
+    ok, raro = [], []
+    for p in partes:
+        c = p.strip().strip('"').strip("'").strip().upper()
+        if not c or c in ("NAN", "NONE", "NULL"):
+            continue
+        (ok if c in CRITERIOS_DB else raro).append(c)
+    return list(dict.fromkeys(ok)), list(dict.fromkeys(raro))
 
 
 def detenciones_de_postgres():
@@ -597,8 +644,10 @@ def detenciones_de_postgres():
         "DESCRIPCION": d["descripcion"], "LOTE": d["lote"], "PRODUCTO": d["producto"],
         "ALCANCE": d["alcance"], "CANTIDAD AFECTADA (KG)": d["cantidad_kg"],
         "FECHA DEL EVENTO": d["fecha_evento"], "RESOLUCION": d["resolucion"],
+        # se normaliza al leer, para que la hoja DETENCIONES lo muestre legible; lo
+        # no reconocido se conserva y vuelve a salir como no reconocido
         "CRITERIOS DE LIBERACION": d["criterios"].map(
-            lambda v: "; ".join(v) if isinstance(v, (list, tuple)) else str(v or "")),
+            lambda v: "; ".join(sum(lee_criterios(v), []))),
         "ESTADO": d["estado"]})
 
 
@@ -610,7 +659,16 @@ if det is None:
     det = det[det["ID"].notna()].copy()
 print(f"  detenciones: {len(det)} desde {FUENTE_DET}")
 det["_L"] = det["LOTE"].map(norm)
+# con el sufijo: una detencion sobre una unidad concreta solo la cierra esa unidad
+det["_U"] = det["LOTE"].map(norm_u)
 det["_EVENTO"] = pd.to_datetime(det["FECHA DEL EVENTO"], errors="coerce")
+_lc = det["CRITERIOS DE LIBERACION"].map(lee_criterios)
+det["_CRIT"] = _lc.map(lambda x: x[0])
+det["_CRIT_RARO"] = _lc.map(lambda x: x[1])
+_raros = sorted({c for v in det["_CRIT_RARO"] for c in v})
+if _raros:
+    print(f"  ATENCION detenciones: criterio(s) de liberacion no reconocido(s) "
+          f"({', '.join(_raros)}): esas detenciones quedan vigentes sin propuesta de cierre")
 det["_ESTADO"] = det["ESTADO"].astype(str).str.strip().str.upper()
 det["_VIGENTE"] = det["_ESTADO"].isin(["ABIERTA", "PNC"])
 
@@ -684,6 +742,17 @@ def evalua(rows, criterios=None, desde=None):
 
 
 TXT_RAM_TECHO = "RAM: réplica incontable (sobre el techo del método)"
+
+
+def lis_txt(v, rows):
+    """La listeria de un conjunto de muestras como se muestra en la columna.
+
+    "Ausencia" o "NO APLICA" a secas callaba una PRESENCIA medida en linea congelada
+    sin destino restringido: el veredicto no cambia, pero la columna lo dice.
+    """
+    if v in ("Ausencia", "NO APLICA") and len(rows) and             (rows["_LM_P"] & ~rows["_LIS_APLICA"].astype(bool)).any():
+        return f"{v} (con PRESENCIA no exigible por destino)"
+    return v
 
 
 def incumple(r, criterio):
@@ -790,7 +859,7 @@ else:
 
 if reg:
     _lib = pd.DataFrame(reg)
-    _lib = _lib[_lib["_L"].str.len() >= MIN_LOTE]
+    _lib = _lib[_lib["_L"].map(es_lote)]
     libu = _lib.groupby("_L").agg(
         FECHA=("FECHA", "max"),
         MERCADOS=("MERCADOS", lambda x: "/".join(sorted({k for v in x for k in str(v).split("/") if k}))),
@@ -846,7 +915,7 @@ def alcanza(traza_u, unidad_u):
     return emparenta(unidad_u.split("*")[0], traza_u)
 if blo:
     ope = pd.DataFrame(blo)
-    ope = ope[ope["_L"].str.len() >= MIN_LOTE].copy()
+    ope = ope[ope["_L"].map(es_lote)].copy()
     _cerrada = []
     for _, x in ope.iterrows():
         k = [j for j in LIBK if emparenta(j, x["_L"])]
@@ -941,6 +1010,10 @@ if len(dec):
     dec["_TIPO"] = dec["TIPO"].astype(str).str.strip().str.upper()
     dec["_LOTE"] = dec["LOTE"].map(norm, na_action="ignore")
     dec["_BATCH"] = dec["BATCH"].map(norm, na_action="ignore")
+    # lo firmado, CON sufijo: el batch si se anoto, si no el lote. Una firma sobre una
+    # unidad (*SSD) o sobre un batch no alcanza al lote que la contiene
+    dec["_OBJ"] = [norm_u(b) if pd.notna(b) and str(b).strip() else
+                   (norm_u(x) if pd.notna(x) else "") for b, x in zip(dec["BATCH"], dec["LOTE"])]
     anuladas = set(dec.loc[dec["_TIPO"] == "ANULACION", "ANULA"].dropna().astype(str))
     dec = dec[~dec["ID"].astype(str).isin(anuladas)]
     print(f"  decisiones firmadas vigentes: {len(dec)} desde {FUENTE_DEC}")
@@ -949,6 +1022,7 @@ else:
     dec["_TIPO"] = ""
     dec["_LOTE"] = ""
     dec["_BATCH"] = ""
+    dec["_OBJ"] = ""
 
 
 # Lo que cada tratamiento corrige de verdad. Las altas presiones hidrostaticas
@@ -995,10 +1069,24 @@ def firmada(clave, rows_lab, causas_vivas=()):
     """
     if not len(dec):
         return None, ""
-    m = dec[(dec["_TIPO"] == "LIBERACION")
-            & (dec["_BATCH"].fillna("").map(lambda x: bool(x) and emparenta(x, clave))
-               | dec["_LOTE"].fillna("").map(lambda x: bool(x) and emparenta(x, clave)))]
+    # Una firma alcanza a la clave solo si se firmo sobre ella o sobre un lote que la
+    # contiene. Hasta el 30/09/2026 bastaba que se emparentaran en cualquier sentido:
+    # una firma sobre el batch M, o sobre la unidad *37V (el sufijo se perdia al
+    # normalizar), liberaba el lote entero con sus otros batches y dias. Es la regla
+    # por unidad aplicada a la firma: lo firmado sobre una parte no cierra el todo.
+    lib = dec[dec["_TIPO"] == "LIBERACION"]
+    def _alcanza_firma(t):
+        if not t or "*" in t:
+            return False
+        return es_lote(t) and emparenta(t, clave) and len(t) <= len(clave)
+    m = lib[lib["_OBJ"].fillna("").map(_alcanza_firma)]
     if not len(m):
+        parte = lib[lib["_OBJ"].fillna("").map(
+            lambda t: bool(t) and emparenta(t.split("*")[0], clave))]
+        if len(parte):
+            return None, ("Hay firma(s) sobre una parte del lote ("
+                          + ", ".join(sorted(set(parte["_OBJ"]))[:3]) + "): una firma sobre "
+                          "un batch o una unidad no libera el lote que la contiene")
         return None, ""
     d = m.sort_values("_FECHA").iloc[-1]
     f = d["_FECHA"]
@@ -1092,10 +1180,32 @@ def por_que_no_aplica(rows, c):
         return ("Nitrito no aplica: linea congelada (no es bacon ni wheel)"
                 + (f" (se omite: {mal[0]})" if mal else ""))
     if c == "LISTERIA":
-        hubo = bool(rows["_LM_P"].any())
+        ne = presencias_no_exigibles(rows)
         return ("Listeria no aplica: linea congelada sin destino EE.UU. ni Costa Rica"
-                + (" (se omite una PRESENCIA)" if hubo else ""))
+                + (f" ({ne})" if ne else ""))
     return f"{c.title()} no aplica"
+
+
+def presencias_no_exigibles(rows):
+    """Cada PRESENCIA de listeria que el motor no exige, con su unidad y su fecha.
+
+    Una muestra de linea congelada sin destino EE.UU. ni Costa Rica puede dar
+    PRESENCIA y no bloquear, porque ahi el criterio no se exige. El veredicto es
+    correcto; lo que no puede pasar es que el texto que lee quien firma la resuma
+    como "conforme en LISTERIA" (paso el 30/09/2026 en 2CK2612041, 2CK2614044,
+    2CK2617049 y 2CK2620051). Vacio si no hay ninguna.
+    """
+    if not len(rows) or "_LIS_APLICA" not in rows:
+        return ""
+    x = rows[rows["_LM_P"] & ~rows["_LIS_APLICA"].astype(bool)]
+    if not len(x):
+        return ""
+    u = x["_U"] if "_U" in x else x["_L"]
+    donde = sorted({f"{a} del {f:%d/%m/%Y}" if pd.notna(f) else f"{a} (sin fecha)"
+                    for a, f in zip(u, x["_FECHA"])})
+    return (f"PRESENCIA de listeria no exigible por destino -linea congelada sin EE.UU. "
+            f"ni Costa Rica- en {', '.join(donde[:4])}"
+            + (f" y {len(donde) - 4} mas" if len(donde) > 4 else ""))
 
 
 def _falla(row, c):
@@ -1186,10 +1296,14 @@ def historia(rows, c, remuestrea=True):
     _n, _nm = cuenta_analisis(m, c)
     cuenta = {"n": _n, "n_mal": _nm, "n_muestras": len(m)}
     _un = UNIDAD[c]
+    # lo medido y no exigido no cuenta para el veredicto, pero tampoco se calla:
+    # "conforme" junto a una PRESENCIA no exigible tiene que decirlo
+    ne = presencias_no_exigibles(rows) if c == "LISTERIA" else ""
     if not malo.any():
-        return {**vacio, **cuenta, "estado": "CONFORME",
+        return {**vacio, **cuenta, "estado": "CONFORME", "no_exigible": ne,
                 "txt": f"{c.title()} conforme en {_n} {_un}"
-                       + (f" de {len(m)} muestra(s)" if len(m) != _n else "")}
+                       + (f" de {len(m)} muestra(s)" if len(m) != _n else "")
+                       + (f"; ademas {ne}" if ne else "")}
     ult = m[malo].iloc[-1]
     post = m[m["_FECHA"] > ult["_FECHA"]]
     de_n = (f" ({_nm} de {_n} {_un}"
@@ -1199,7 +1313,7 @@ def historia(rows, c, remuestrea=True):
         return {**cuenta, "estado": "REMUESTREO CONFORME",
                 "txt": (f"{_texto(ult, c)} el {ult['_FECHA']:%d/%m/%Y}{de_n}, luego {len(post)} "
                         f"muestra(s) conforme(s) hasta el {post['_FECHA'].max():%d/%m/%Y}"
-                        + (f" [{obs}]" if obs else "")),
+                        + (f" [{obs}]" if obs else "") + (f"; ademas {ne}" if ne else "")),
                 "falla": ult["_FECHA"], "ok": post["_FECHA"].max(), "n_post": len(post)}
     return {**cuenta, "estado": "NO CONFORME", "txt": _texto(ult, c) + de_n,
             "falla": ult["_FECHA"], "ok": pd.NaT, "n_post": len(post)}
@@ -1221,8 +1335,15 @@ def _agrega(e, c, que):
                 "txt": "; ".join(sorted({x["txt"] for x in rc})), "unidades": []}
     if any(x["estado"] == "CONFORME" for x in e):
         n = sum(1 for x in e if x["estado"] == "CONFORME")
-        return {"estado": "CONFORME", "txt": f"{c.title()} conforme en {n} {que}",
-                "unidades": []}
+        # las presencias no exigibles de las partes suben con el resumen: sin esto
+        # "Listeria conforme en 3 batch(es)" escondia una PRESENCIA de linea congelada
+        ne = sorted({x["no_exigible"] for x in e if x.get("no_exigible")}
+                    | {x["txt"] for x in e if x["estado"] == "NO APLICA"
+                       and "PRESENCIA" in x.get("txt", "")})
+        return {"estado": "CONFORME", "unidades": [],
+                "no_exigible": "; ".join(ne),
+                "txt": f"{c.title()} conforme en {n} {que}"
+                       + (f"; ademas {'; '.join(ne)}" if ne else "")}
     if any(x["estado"] == "NO APLICA" for x in e):
         na = [x for x in e if x["estado"] == "NO APLICA"]
         return {"estado": "NO APLICA", "txt": "; ".join(sorted({x["txt"] for x in na})),
@@ -1278,6 +1399,131 @@ def resume(rows):
         porbat[b] = {c: _agrega([poruni[u][c] for u in us], c, "unidad(es)") for c in CRIT}
     agg = {c: _agrega([porbat[b][c] for b in porbat], c, "batch(es)") for c in CRIT}
     return agg, porbat
+
+
+# ------------------------------------------------- cierre de lo declarado, por unidad
+# Una detencion (Postgres), una fila de detencion historica o un bloqueo heredado de
+# la materia prima se cierra contra el laboratorio con la MISMA regla que decide la
+# vigencia de un criterio: por unidad de laboratorio (lote con su sufijo *SSD).
+#
+# Hasta el 30/09/2026 se cerraban con evalua() sobre todas las muestras del lote base
+# posteriores al evento: un conforme de cualquier unidad cerraba la detencion de otra,
+# que es el error R1 que se corrigio ese mismo dia en el veredicto del laboratorio.
+# Las detenciones de Postgres no lo mostraban solo porque su criterio no se leia
+# ('{LISTERIA,RAM}'); arreglar la lectura sin esto las habria cerrado por lote base.
+_ALCANCE = {}
+
+
+def alcance_lab(objetivo_u):
+    """Muestras del laboratorio que alcanza algo declarado sobre objetivo_u.
+
+    Con sufijo, solo esa unidad: es la unica que la puede cerrar. Sin sufijo, todas
+    las unidades del lote (y de sus batches), con o sin sufijo. Se busca en todo el
+    laboratorio y no en las muestras del lote de stock, para no perder unidades
+    hermanas de una detencion declarada sobre un lote padre.
+    """
+    if objetivo_u not in _ALCANCE:
+        if "*" in objetivo_u:
+            _ALCANCE[objetivo_u] = lab[lab["_U"] == objetivo_u]
+        else:
+            _ALCANCE[objetivo_u] = lab[lab["_L"].map(lambda x: emparenta(x, objetivo_u))]
+    return _ALCANCE[objetivo_u]
+
+
+def _lista(us, k=4):
+    us = sorted(us)
+    return ", ".join(us[:k]) + (f" y {len(us) - k} mas" if len(us) > k else "")
+
+
+def cierre_por_unidad(scope, crit, evento, contexto=None, objetivo=""):
+    """(se_cierra, texto) de algo declarado, contra el laboratorio y por unidad.
+
+    scope son las muestras de las unidades que lo declarado alcanza; contexto, las
+    del lote en que se esta evaluando (lo que miraba la regla anterior). Se cierra
+    solo si, para CADA criterio de su motivo:
+      1. hay al menos una muestra posterior al evento, del alcance, que lo mida;
+      2. ninguna muestra del alcance ni del lote, del dia del evento en adelante,
+         lo incumple (listeria, solo donde se exige; RAM y nitrito, en todas, como
+         hacia evalua()). Es el mismo conjunto que miraba la regla anterior y algo
+         mas: la regla por unidad no puede cerrar nada que antes quedaba abierto;
+      3. cada unidad alcanzada que tenga resultados el mismo dia del evento o antes
+         -o sin fecha- tiene su PROPIA muestra posterior que lo mide. Un conforme de
+         otra unidad no la cierra;
+      4. el lote que se esta evaluando (contexto) tiene muestra posterior propia que
+         lo mide: una detencion sobre el lote padre no se da por cerrada para el
+         batch 1 con lo que se analizo del batch W.
+    "Posterior" es estrictamente despues: una muestra del dia del evento no
+    acredita que se tomo despues de la desviacion. Sin criterio, sin fecha o sin
+    muestras, no se cierra. Ante cualquier duda, no se cierra.
+
+    Una listeria medida en linea congelada sin destino restringido cuenta como
+    medida y no exigible, igual que en el veredicto; el texto lo dice con unidad y
+    fecha, y nunca la resume como conforme.
+    """
+    if not crit:
+        return False, ("NO LIBERABLE - sin criterio de laboratorio: el motivo no se mide "
+                       "en laboratorio y solo lo cierra una decision firmada")
+    if pd.isna(evento):
+        return False, ("NO LIBERABLE - sin fecha del evento no se puede acreditar que una "
+                       "muestra sea posterior")
+    de = f" de {objetivo}" if objetivo else ""
+    f = scope["_FECHA"]
+    post = scope[f.notna() & (f > evento)]
+    pre = scope[f.isna() | (f <= evento)]
+    if not len(scope):
+        return False, (f"NO LIBERABLE - el laboratorio no tiene muestras{de}: nada "
+                       "acredita que se haya re-muestreado")
+    mismo = int((f.notna() & (f.dt.normalize() == pd.Timestamp(evento).normalize())).sum())
+    if not len(post):
+        return False, (f"NO LIBERABLE - sin muestras posteriores al {evento:%d/%m/%Y}{de}"
+                       + (f" ({mismo} del mismo dia, que no cuentan como posteriores)"
+                          if mismo else ""))
+    vigila = scope if contexto is None else pd.concat([scope, contexto])
+    vigila = vigila[~vigila.index.duplicated()]
+    vigila = vigila[vigila["_FECHA"].notna() & (vigila["_FECHA"] >= evento)]
+    u_pre = set(pre["_U"])
+    malos, faltan, sin_propia, partes = [], [], [], []
+    for c in crit:
+        base = mide(vigila, c) if c == "LISTERIA" else con_dato(vigila, c)
+        mal = base[base.apply(lambda r: _falla(r, c), axis=1)] if len(base) else base
+        for _, x in mal.sort_values("_FECHA").iterrows():
+            malos.append(f"{_texto(x, c)} en {x['_U']} del {x['_FECHA']:%d/%m/%Y}")
+        medido = con_dato(post, c)
+        if not len(medido):
+            faltan.append(c)
+            continue
+        if contexto is not None:
+            _fc = contexto["_FECHA"]
+            if not len(con_dato(contexto[_fc.notna() & (_fc > evento)], c)):
+                faltan.append(f"{c} en el propio lote")
+                continue
+        sp = sorted(u_pre - set(medido["_U"]))
+        if sp:
+            sin_propia.append(f"{c}: {_lista(sp)}")
+        m = mide(post, c)
+        ne = presencias_no_exigibles(post) if c == "LISTERIA" else ""
+        if len(m):
+            n, _ = cuenta_analisis(m, c)
+            p = f"{c} conforme en {n} {UNIDAD[c]} de {m['_U'].nunique()} unidad(es)"
+        else:
+            p = f"{c} medida pero no exigible (linea congelada sin EE.UU. ni Costa Rica)"
+        partes.append(p + (f"; {ne}" if ne else ""))
+    if malos:
+        return False, (f"NO LIBERABLE - resultado no conforme desde el {evento:%d/%m/%Y} ("
+                       + "; ".join(dict.fromkeys(malos)) + ")")
+    if faltan:
+        return False, (f"NO LIBERABLE - las {len(post)} muestra(s) posterior(es) al "
+                       f"{evento:%d/%m/%Y}{de} no midieron {', '.join(faltan)}")
+    if sin_propia:
+        return False, ("NO LIBERABLE - hay unidades con resultados al "
+                       f"{evento:%d/%m/%Y} o antes sin muestra posterior propia que mida "
+                       "el criterio (" + "; ".join(sin_propia) + "): un conforme de otra "
+                       "unidad no las cierra")
+    return True, (f"LIBERABLE segun lab - {len(post)} muestra(s) posterior(es) al "
+                  f"{evento:%d/%m/%Y} en {post['_U'].nunique()} unidad(es)"
+                  + (f", incluida muestra propia de cada una de las {len(u_pre)} unidad(es) "
+                     "con resultados previos" if u_pre else "")
+                  + ": " + " | ".join(partes))
 
 
 # ------------------------------------------------- estado de cada materia prima
@@ -1427,7 +1673,7 @@ huerfanos = [d for d in lotes_det if not any(emparenta(d, s) for s in lotes_stoc
 # universo queda invisible, que es el peor error posible en un control de bloqueos.
 lab_solo = []
 for _l, _g in lab.groupby("_L"):
-    if len(_l) < MIN_LOTE:
+    if not es_lote(_l):
         continue
     if any(emparenta(_l, s) for s in lotes_stock) or any(emparenta(_l, d) for d in lotes_det):
         continue
@@ -1497,8 +1743,13 @@ def sospechoso(txt):
     t = str(txt).strip()
     return bool(re.search(r"\s", t) or re.search(r"PRUEBA|TEST", t, re.I) or not re.search(r"\d", t))
 
-def veredicto_ope(crit, f, rows_lab):
+def veredicto_ope(crit, f, scope, contexto=None, objetivo=""):
     """(libera, texto) de un bloqueo declarado, evaluado contra el lab posterior.
+
+    scope son las muestras de las unidades que el bloqueo alcanza (alcance_lab de
+    sus trazas): con sufijo, solo esa unidad. Se cierra por unidad, con
+    cierre_por_unidad(): hasta el 30/09/2026 bastaba un conforme posterior de
+    cualquier unidad del lote base.
 
     Devuelve el veredicto sin el encabezado ni la aclaracion del motivo, para que
     quien lo llama los agregue una sola vez y no haya que repetirlos en cada rama.
@@ -1516,19 +1767,8 @@ def veredicto_ope(crit, f, rows_lab):
     if pd.isna(f):
         return False, ("NO LIBERABLE - sin fecha de bloqueo no se puede acreditar que una "
                        f"muestra sea posterior ({inf})")
-    rp, _post = evalua(rows_lab, desde=f)
-    malos = [txt for c in crit for mal, _fd, txt in [incumple(rp, c)] if mal]
-    faltan = [c for c in crit if incumple(rp, c)[1]]
-    if rp["n"] == 0:
-        return False, f"NO LIBERABLE - sin muestras posteriores al {f:%d/%m/%Y} ({inf})"
-    if malos:
-        return False, f"NO LIBERABLE - resultado posterior no conforme ({'; '.join(malos)})"
-    if faltan:
-        return False, (f"NO LIBERABLE - las {rp['n']} muestra(s) posterior(es) al "
-                       f"{f:%d/%m/%Y} no midieron {', '.join(faltan)} ({inf})")
-    return True, (f"LIBERABLE segun lab - {rp['n']} muestra(s) posterior(es) al "
-                  f"{f:%d/%m/%Y} conforme(s) en {', '.join(crit)} ({inf}). "
-                  "Requiere firma de Calidad.")
+    libera, txt = cierre_por_unidad(scope, crit, f, contexto, objetivo)
+    return libera, f"{txt} ({inf})" + (". Requiere firma de Calidad." if libera else "")
 
 
 filas = []
@@ -1587,22 +1827,20 @@ for l in universo:
             propuestas.append(f"{d['ID']}: PNC - no se libera contra laboratorio")
             continue
         motivos_det.append(etq)
-        crit = [c.strip().upper() for c in str(d["CRITERIOS DE LIBERACION"]).split(";") if c.strip()]
-        rp, post = evalua(rows_lab, desde=d["_EVENTO"])
-        if rp["n"] == 0:
-            propuestas.append(f"{d['ID']}: NO LIBERABLE - sin muestras posteriores al "
-                              f"{d['_EVENTO']:%d/%m/%Y}")
+        # El criterio se lee con lee_criterios(): de Postgres llega '{LISTERIA,RAM}'.
+        # Un criterio que no se reconoce deja la detencion vigente, sin propuesta de
+        # cierre. Y el cierre es por unidad: la detencion alcanza a las unidades de
+        # su lote (con sufijo, solo a esa), y cada una con resultados previos al
+        # evento necesita su propia muestra posterior conforme.
+        if d["_CRIT_RARO"]:
+            propuestas.append(f"{d['ID']}: NO LIBERABLE - criterio de liberacion no "
+                              f"reconocido ({', '.join(d['_CRIT_RARO'])}): no se puede "
+                              "acreditar que el laboratorio lo midio")
             continue
-        malos = [txt for c in crit for mal, _f, txt in [incumple(rp, c)] if mal]
-        faltan = [c for c in crit if incumple(rp, c)[1]]
-        if malos:
-            propuestas.append(f"{d['ID']}: NO LIBERABLE - resultado no conforme ({'; '.join(malos)})")
-        elif faltan:
-            propuestas.append(f"{d['ID']}: NO LIBERABLE - falta {', '.join(faltan)} "
-                              f"en las {rp['n']} muestras posteriores al evento")
-        else:
-            propuestas.append(f"{d['ID']}: LIBERABLE segun lab - {rp['n']} muestra(s) posterior(es) "
-                              f"conforme(s) en {', '.join(crit)}. Requiere firma de Calidad.")
+        libera, txt = cierre_por_unidad(alcance_lab(d["_U"]), d["_CRIT"], d["_EVENTO"],
+                                        rows_lab, d["_U"])
+        propuestas.append(f"{d['ID']}: {txt}"
+                          + (". Requiere firma de Calidad." if libera else ""))
 
     # ---- bloqueos declarados en el Excel historico
     # Mismo tratamiento que una detencion: bloquea por SU motivo, y solo lo levanta
@@ -1621,7 +1859,20 @@ for l in universo:
             etq = " / ".join(txts[:2])[:90] or "sin motivo escrito"
             motivos_ope.append(f"{etq} ({len(g)} registro(s)"
                                + (f", ultimo {f:%d/%m/%Y}" if pd.notna(f) else ", sin fecha") + ")")
-            libera, txt = veredicto_ope(crit, f, rows_lab)
+            # Cada traza del grupo se cierra por separado, con las unidades que ella
+            # alcanza (con sufijo, solo esa), y tienen que cerrarse todas: juntarlas
+            # dejaba que el batch W, alcanzado por la traza del lote padre, cerrara la
+            # traza del batch 1. Si todas cierran, el texto es el del conjunto.
+            _tr = sorted(set(g["_U"]))
+            libera, txt = True, ""
+            for _t in _tr:
+                libera, txt = veredicto_ope(crit, f, alcance_lab(_t), rows_lab, _t)
+                if not libera:
+                    break
+            if libera and len(_tr) > 1:
+                _sc = pd.concat([alcance_lab(t) for t in _tr])
+                _sc = _sc[~_sc.index.duplicated()]
+                libera, txt = veredicto_ope(crit, f, _sc, rows_lab, _lista(_tr, 3))
             # el motivo escrito puede leerse al reves de lo que significa -"vida util
             # transcurrida" no es producto vencido-, asi que la aclaracion viaja con
             # el veredicto y no en un pie de pagina que nadie lee
@@ -1642,34 +1893,37 @@ for l in universo:
     # traia la materia prima. Si el producto ya se analizo despues y salio conforme
     # en TODO lo que la materia prima traia mal, el lote esta listo para liberarse
     # y lo unico que falta es la firma: candidato, no bloqueado.
+    # Por unidad, como todo lo que se cierra con muestras posteriores: cada unidad del
+    # lote con resultados al dia de la falla de la materia prima o antes necesita su
+    # propia muestra posterior conforme; un conforme de otra unidad no la cubre.
     if mp_pend and pd.notna(mp_falla) and len(rows_lab):
         _post = rows_lab[rows_lab["_FECHA"] > mp_falla]
         if len(_post):
-            _rp, _ = evalua(_post)
-            _ok = {c for c in CRIT_MP if not any(incumple(_rp, c)[:2])}
+            _cie = {c: cierre_por_unidad(rows_lab, [c], mp_falla, rows_lab) for c in sorted(mp_crit)}
+            _ok = {c for c, (ok, _t) in _cie.items() if ok}
             if mp_crit and mp_crit <= _ok:
                 mp_cand += mp_pend
                 mp_pend = 0
-                # cuantas de las posteriores midieron cada criterio: "conforme" sin el
-                # tamano de la evidencia no alcanza para decidir una firma
-                _det = "; ".join(
-                    f"{c.title()} conforme en {cuenta_analisis(mide(_post, c), c)[0]} "
-                    f"{UNIDAD[c]}" for c in sorted(mp_crit))
+                # el tamano de la evidencia por criterio, y lo medido y no exigido
+                # dicho como tal: "conforme" a secas escondia una PRESENCIA
+                _det = " | ".join(_t.split(": ", 1)[-1] for c, (_o, _t) in _cie.items())
                 propuestas.append(
                     f"Materia prima: el producto terminado tiene {len(_post)} muestra(s) "
-                    f"posterior(es) al {mp_falla:%d/%m/%Y} y {_det}, que es lo que la "
-                    "materia prima traia mal. Queda listo para liberar, pero no se libera "
-                    "solo: la firma es de Calidad.")
-            elif _ok:
-                # "no cubre LISTERIA" puede ser que nadie la midio o que salio mal
-                # otra vez, y no es lo mismo para decidir: se dice cual de las dos
+                    f"posterior(es) al {mp_falla:%d/%m/%Y}, con muestra propia de cada "
+                    f"unidad con resultados previos ({_det}), y es lo que la materia prima "
+                    "traia mal. Queda listo para liberar, pero no se libera solo: la firma "
+                    "es de Calidad.")
+            else:
+                # se dice por que no cubre: no es lo mismo que nadie lo haya medido, que
+                # haya salido mal otra vez o que falte la muestra propia de una unidad
                 _falta = sorted(mp_crit - _ok)
-                _por = "; ".join(f"{c.title()}: {cuantos(_post, c)}" for c in _falta)
                 propuestas.append(
-                    f"Materia prima: el producto terminado dio conforme en "
-                    f"{', '.join(sorted(_ok))}, pero eso no cubre "
-                    f"{', '.join(_falta)}, que es lo que fallo en la "
-                    f"materia prima ({_por} en el producto terminado). Sigue bloqueado.")
+                    "Materia prima: "
+                    + (f"el producto terminado cubre {', '.join(sorted(_ok))}, pero no "
+                       if _ok else "el producto terminado no cubre ")
+                    + f"{', '.join(_falta)}, que es lo que fallo en la materia prima: "
+                    + "; ".join(f"{c} {_cie[c][1].replace('NO LIBERABLE - ', '')}"
+                                for c in _falta) + ". Sigue bloqueado.")
     if not mp_pend:
         # ya no bloquea: el "NO LIBERABLE" describiria el estado de la materia prima,
         # pero se lee como el veredicto del lote y lo contradice
@@ -1889,7 +2143,7 @@ for l in universo:
         "MATERIA PRIMA BLOQUEA": "SI" if mp_pend else "",
         "PROPUESTA DE LIBERACION (no libera)": " || ".join(propuestas),
         "OBSERVACIONES": " | ".join(obs),
-        "LISTERIA": r["listeria"] or ("sin dato" if len(rows_lab) else None),
+        "LISTERIA": lis_txt(r["listeria"], rows_lab) or ("sin dato" if len(rows_lab) else None),
         "RAM MAX (UFC/g)": r["ram"],
         "NITRITO PROM. MIN (ppm)": r["nitrito"],
         "WPS MIN (%)": r["wps"],
@@ -1936,8 +2190,9 @@ _sin_forma = 0
 for b, g in lab.groupby("_U"):
     # El laboratorio a veces anota un correlativo ('099', '107') en la columna del
     # lote. No es un lote y no puede tener veredicto: sin este filtro aparecian en
-    # el listado de bloqueados como si fueran producto.
-    if len(b.split("*")[0]) < MIN_LOTE:
+    # el listado de bloqueados como si fueran producto. Los lotes de recorte y
+    # despunte (SW26107, 7 caracteres) si lo son: los reconoce es_lote().
+    if not es_lote(b.split("*")[0]):
         _sin_forma += 1
         continue
     rb, _ = evalua(g)
@@ -1975,7 +2230,7 @@ for b, g in lab.groupby("_U"):
         "MOTIVO - DETENCION": " | ".join(f"{d['ID']} {d['TIPO DE DESVIACION']}"
                                          for _, d in dv.iterrows()),
         "MOTIVO - DETENCION HISTORICA": motivo_ov,
-        "LISTERIA": rb["listeria"] or "sin dato",
+        "LISTERIA": lis_txt(rb["listeria"], g) or "sin dato",
         "RAM MAX (UFC/g)": rb["ram"],
         "NITRITO PROMEDIO (ppm)": rb["nitrito"],
         "WPS (%)": rb["wps"],

@@ -72,6 +72,23 @@ WPS_MIN = 3.5              # % de sal en fase acuosa. Hay que superarlo, no igua
 # el laboratorio tiene registros cortos ('010', '107') que arruinan el match.
 MIN_LOTE = 8
 
+# Lotes de recorte y despunte mensual (CAL-PRO-07): [B][@] + sigla de dos letras
+# + anio (2) + juliano de proceso (3). SW26098 tiene 7 caracteres, y con el piso
+# de arriba quedaba fuera como si fuera un correlativo del laboratorio: el
+# 30/09/2026 SW26107*16V, rebanado en frio con listeria en 1 de 3, no tenia
+# veredicto en ninguna hoja. El piso NO se baja para todos -dejaria entrar '099' o
+# '107'-: se reconoce esta forma y solo esta, y el juliano tiene que ser un dia
+# real (001 a 366). Un lote corto solo se empareja por igualdad, nunca por
+# prefijo: no hay largo suficiente para que un prefijo signifique algo.
+# Quedan fuera a proposito, porque no tienen esta forma: los correlativos
+# numericos ('058*24J', '147326'), 'NN', y 2420S0W, que es otra convencion.
+LOTE_CORTO = r"^B?@?[A-Z]{2}\d{2}(?:00[1-9]|0[1-9]\d|[12]\d\d|3[0-5]\d|36[0-6])$"
+
+
+def es_lote(base):
+    """Si un codigo base (normalizado, sin sufijo *SSD) tiene forma de lote."""
+    return len(base) >= MIN_LOTE or bool(re.match(LOTE_CORTO, base))
+
 # ------------------------------------------------------------------ criterios
 #
 #   RAM       toda linea, sin excepciones.
@@ -92,6 +109,17 @@ MIN_LOTE = 8
 # que fallo. Si una unidad del lote queda no conforme, el lote queda no conforme
 # en ese criterio. Una muestra sin sufijo es una unidad aparte: no cierra a una
 # con sufijo ni la cierra una con sufijo, porque no hay como saber si es la misma.
+#
+# La misma regla cierra lo DECLARADO contra el laboratorio (30/09/2026): una
+# detencion, una fila de detencion historica o un bloqueo heredado de la materia
+# prima. Se cierra solo si, para cada criterio de su motivo:
+#   - hay al menos una muestra POSTERIOR al evento que lo mida;
+#   - ninguna muestra posterior lo incumple;
+#   - cada unidad alcanzada que tenga resultados el mismo dia del evento o antes
+#     (o sin fecha) tiene su propia muestra posterior que lo mide.
+# Una detencion sobre el lote base alcanza a todas sus unidades; una con sufijo,
+# solo a esa unidad, y solo esa unidad la cierra. Una muestra del mismo dia del
+# evento no es posterior. Ante cualquier duda, no se cierra.
 
 # Clientes de destino EE.UU. Se detectan por razon social.
 US_CLI = r"\bLLC\b|\bINC\b|ECHO FALLS|SLADE GORTON|OCEAN SKY|GLOBAL STAR"
@@ -217,4 +245,11 @@ def huella_criterios():
             "propia); "
             "detencion historica=bloquea por su motivo hasta liberacion declarada; "
             "vida util transcurrida=se cierra con RAM conforme posterior; "
-            "materia prima=no caduca por muestra posterior del mismo lote de proveedor")
+            "materia prima=no caduca por muestra posterior del mismo lote de proveedor; "
+            "cierre contra laboratorio de detencion, detencion historica y materia prima="
+            "por unidad (cada unidad alcanzada con resultados al dia del evento o antes "
+            "necesita muestra posterior propia que mida el criterio; ninguna posterior lo "
+            "incumple; detencion con sufijo solo la cierra esa unidad); "
+            "firma sobre un batch o una unidad no libera el lote; "
+            f"lote=codigo de {MIN_LOTE} o mas caracteres, o recorte/despunte "
+            "[B][@]+sigla+anio+juliano")

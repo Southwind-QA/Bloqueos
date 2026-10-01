@@ -93,6 +93,14 @@ resultado posterior que vuelva a medir *ese* criterio y salga conforme. Un
 bloqueo por listeria no se cierra con un nitrito conforme, y uno por falta de
 documentación **no se cierra con ninguna muestra**: el laboratorio no mide eso.
 
+Y se cierra **por unidad** (desde el 30/09/2026), igual que la vigencia de un criterio:
+cada unidad alcanzada que tenga resultados el día del evento o antes necesita su propia
+muestra posterior que mida el criterio, ninguna muestra posterior lo incumple, y una
+detención con sufijo `*SSD` solo la cierra esa unidad. Vale para la detención de la base,
+la detención histórica y la materia prima (`cierre_por_unidad()` en `cruce2.py`). El
+criterio de una detención de la base llega como `{LISTERIA,RAM}` y lo lee
+`lee_criterios()`; uno que no se reconoce la deja vigente.
+
 En `Bloqueo 2026.xlsm` la columna `Estado` se escribe **únicamente al liberar**,
 así que una fila sin estado es un bloqueo vigente. La evidencia está en el
 comentario de `cruce2.py` que lee la hoja. Hoy son 2.019 lotes con bloqueo

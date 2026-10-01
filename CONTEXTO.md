@@ -178,6 +178,84 @@ Las dos van en una sola versión de criterios (migración
 foto: 6 lotes a bloqueado (2.165 cajas), 4 a liberado (902), 3 a candidato (199), y los
 candidatos con stock bajan de 100 a 95.
 
+### Tres decisiones más del 30/09/2026 (tarde)
+
+Salieron de revisar el motor después de la regla por unidad, y van juntas en otra versión
+de criterios (migración `20260930180000_bloqueos_criterio_cierre_por_unidad.sql`).
+
+**Un lote de recorte de siete caracteres es un lote.** CAL-PRO-07 escribe el recorte y
+despunte mensual como `[B][@]` + sigla + año + juliano: `SW26098` tiene 7 caracteres, y el
+piso `MIN_LOTE = 8` lo descartaba junto con los correlativos que el laboratorio anota en
+la columna del lote. `SW26107*16V`, rebanado en frío con listeria en 1 de 3, no tenía
+veredicto en ninguna hoja ni en la consulta. El piso existe por `099` o `107`, así que no
+se bajó: se reconoce la forma explícita `config.LOTE_CORTO` (juliano 001 a 366), y un
+lote corto solo se empareja por igualdad, nunca por prefijo. En los LAB-REG-08 2025 y
+2026 entran once unidades (`SW25154`, `SW25155`, `SW25162`–`SW25164`, `SW25167`,
+`SW25189`, `SW25190`, `SW25195`, `SW26106` conformes; `SW26107` bloqueado) y en el
+PRO-REG-46 2026 el enlace con `SW26133`; el stock de hoy no tiene ninguno. Siguen fuera,
+por no tener esa forma: los correlativos `00`–`141` de PRUEBAS, `058*24J`, `NN` (tienda),
+`147326`, `15246` y `15482` del xlsm, y `2420S0W*06L`, que es otra convención y conviene
+confirmar con producción. El contraargumento es que una sigla de dos letras cualquiera
+también entra; se aceptó porque hoy todo lo que calza es `SW` y un lote corto que entra
+recibe veredicto, no lo pierde.
+
+**Lo que se resume como conforme dice lo que no se exigió.** En `2CK2612041`,
+`2CK2614044`, `2CK2617049` y `2CK2620051` la propuesta decía «conforme(s) en LISTERIA»
+y entre esas muestras había una PRESENCIA que no se exige por ser línea congelada sin
+EE.UU. ni Costa Rica. El veredicto era coherente con la regla; el texto engañaba a quien
+firma. Ahora todo resumen de listeria que tenga una presencia no exigible la nombra con
+unidad y fecha (`presencias_no_exigibles()`): la propuesta, el motivo de la liberación,
+el «no aplica» y la columna LISTERIA («Ausencia (con PRESENCIA no exigible por
+destino)»). Sin efecto en ningún estado: es texto.
+
+**Lo declarado se cierra por unidad, y el criterio de la base se lee.** La columna
+`detencion.criterios` es `criterio[]`, un enum propio, y psycopg la entrega como texto
+`{LISTERIA,RAM}`; el motor partía por `;`, no reconocía el criterio y ninguna detención de
+la base se podía cerrar contra laboratorio. El error iba hacia bloquear, pero arreglar
+solo la lectura las habría cerrado con un conforme de otra unidad, que es el error R1 de
+esta misma mañana. Así que se corrigieron las dos cosas juntas:
+
+- `lee_criterios()` acepta arreglo de Postgres, lista, JSON o el texto del xlsx, sin
+  importar mayúsculas ni espacios. Un criterio desconocido, o ninguno, deja la detención
+  vigente sin propuesta de cierre.
+- `cierre_por_unidad()` cierra una detención, una fila de detención histórica o un
+  bloqueo heredado de la materia prima solo si, para cada criterio de su motivo: hay una
+  muestra estrictamente posterior al día del evento que lo mide, del alcance y del propio
+  lote; ninguna muestra del alcance ni del lote lo incumple desde el día del evento; y
+  cada unidad alcanzada con resultados el día del evento o antes (o sin fecha) tiene su
+  propia muestra posterior que lo mide. Una detención sobre el lote base alcanza a todas
+  sus unidades, también a las de sus batches hermanos; una con sufijo, solo a esa unidad,
+  y solo ella la cierra. Cada traza de una detención histórica se cierra por separado.
+- El chequeo de fallas mira el mismo conjunto que la regla anterior y algo más, de modo
+  que la regla nueva no puede cerrar nada que antes quedaba abierto. Se verificó sobre la
+  foto: ninguna detención histórica ni materia prima pasa de bloquear a cerrable.
+- `firmada()`: una firma alcanza a la clave sobre la que se firmó y a lo que contiene.
+  Antes bastaba que se emparentaran en cualquier sentido, y el sufijo se perdía al
+  normalizar, así que una firma sobre el batch M o sobre la unidad `*37V` liberaba el lote
+  entero. Hoy no hay firmas, así que no movió nada.
+
+Efecto sobre la foto de la corrida 130: **47 candidatos pasan a bloqueado, 27 con stock
+(4.440 cajas)**, y ninguno va hacia liberado ni candidato; los candidatos con stock bajan
+de 95 a 68. 35 de los 47 son trazas del xlsm escritas con el sufijo de rebanado de SAP
+(`2CK2612041*7M`, `@2CK2621054*09L`) o con una letra de batch (`2CK2569272A`) que el
+laboratorio nunca muestreó con ese código: los conformes eran de otros días o de otros
+batches. 6 dependían de una muestra del mismo día del bloqueo, 4 de una unidad con
+resultado previo sin re-muestreo propio, y 2 tienen una PRESENCIA posterior en un batch
+hermano que la traza alcanza. Tres de los cuatro lotes del hallazgo de texto
+(`2CK2612041`, `2CK2617049`, `2CK2620051`) quedan bloqueados por esta regla, no por la del
+texto. Las 29 detenciones abiertas de la base siguen bloqueando, porque una detención solo
+la cierra una persona; 23 tienen ahora propuesta LIBERABLE con su evidencia por unidad.
+
+El contraargumento es el costo: una traza con sufijo de SAP solo se cierra si el
+laboratorio muestrea ese día de rebanado con ese mismo código, o con una firma, y como
+Fishken no registra el sufijo el lote entero queda bloqueado en bodega. Se aceptó porque
+la otra lectura —que el conforme de otro día o de otro batch cierre la detención de este—
+es exactamente lo que se corrigió en la mañana, y si una traza está mal escrita se corrige
+en el xlsm; si está bien escrita, nadie re-muestreó esa unidad. Ojo con un punto que hay
+que confirmar: el contexto global todavía dice que el sufijo `*SSD` «solo existe en SAP y
+se puede descartar al cruzar»; lo de hoy se apoya en la confirmación del 30/09 de que
+distingue unidades.
+
 **Destino:** EE.UU. se detecta por cliente (`LLC`, `INC`, Echo Falls, Slade Gorton,
 Ocean Sky, Global Star) o por producto (wheel, bacon, cold smoked, sliced…).
 Costa Rica: el cliente lleva **`PMT`**.
@@ -206,7 +284,9 @@ Todas se descubrieron rompiendo algo. No las deshagas.
   diga `PT`, para que una fila con el tipo en blanco no desaparezca sin que nadie lo note.
   Y el laboratorio a veces anota un correlativo (`099`, `107`) en la columna del lote:
   esos no tienen forma de lote y quedan fuera del veredicto, o aparecen en el listado de
-  bloqueados como si fueran producto.
+  bloqueados como si fueran producto. **Pero el piso de 8 caracteres no es la forma de un
+  lote:** el recorte y despunte mensual (`SW26098`, `SW26107*16V`) tiene 7, y quedaba fuera
+  con los correlativos. Se reconoce por su forma (`config.LOTE_CORTO`), no bajando el piso.
 - **El sufijo `*NNL` NO es descartable, aunque se creyó que sí durante meses.** Es semana
   y día de producción —coincide con la semana ISO de la fecha en el 98% de las muestras—
   y cada uno lleva su propio `LOTE JULIANO`. `@2CK26621761E*28V`, `*29L` y `*29W` son el 10,
@@ -342,6 +422,10 @@ fallar en silencio.
 | Leer "vida útil transcurrida" como producto vencido | Lo dijo Calidad revisando los mensajes en pantalla | Un motivo escrito a mano hay que traducirlo con quien lo escribe, no inferirlo del castellano. El motor decía "no se mide en laboratorio" justo del motivo que **solo** se cierra con laboratorio |
 | La hoja `FUENTES` declaraba el total en cada archivo | Los cuatro `PRO-REG-46` decían 466 registros y la misma ventana de fechas, exactos | La hoja que existe para declarar cobertura parcial la estaba inflando cuatro veces. El número era el de las muestras de MP del laboratorio, que no salen de esos archivos: la fila se los prestaba. **Una cifra repetida idéntica en varias filas es un síntoma, no una coincidencia** |
 | El lote decidía la vigencia sin el sufijo, la unidad con él | El cuarto revisor, el 30/09/2026: `@2VQ2629250H*37V` positivo, «cubierto» por `*39W` de otro producto y otro día, y el lote en candidato | Una regla escrita bien en un nivel no protege si el otro nivel la reimplementa. La trampa de la letra de batch, una tercera vez |
+| El piso de 8 caracteres como definición de lote | `SW26107*16V`, recorte con listeria en 1 de 3, no tenía veredicto (30/09/2026) | Un filtro contra el ruido tiene que describir el ruido, no el largo de lo bueno: el recorte mensual mide 7 |
+| Leer `detencion.criterios` partiendo por `;` | Las detenciones de la base nunca se podían cerrar: psycopg entrega el `criterio[]` como texto `{LISTERIA,RAM}` (30/09/2026) | Un error que va hacia bloquear también esconde otro: arreglar solo la lectura las habría cerrado por lote base |
+| Cerrar lo declarado con evalua() sobre el lote base | Revisando el arreglo de lo anterior: 47 candidatos se sostenían con conformes de otros días o de otros batches, o con una muestra del mismo día del bloqueo | La regla por unidad tiene que valer en todos los caminos que cierran algo con muestras posteriores, no solo en el veredicto del laboratorio. La trampa de la letra de batch, una cuarta vez |
+| Resumir como «conforme» una listeria con PRESENCIA no exigible | Cuatro propuestas de `2CK26…` decían «conforme(s) en LISTERIA» | El texto que lee quien firma es parte del veredicto: lo que no se exige se dice, con unidad y fecha |
 | Aplicar la regla de re-muestreo del producto a la materia prima | Calidad dijo "nunca haremos un re-muestreo a una materia prima desviada por listeria", y el `PRO-REG-46` lo confirmó: eran otros pallets | **Un veredicto correcto por un argumento falso sigue siendo un error.** No movió ni un lote —los 9 afectados ya se sostenían con los análisis del producto terminado— pero el motor le mostraba a quien firma una evidencia inexistente, y el próximo caso sin cobertura del terminado se habría liberado solo |
 
 ---
@@ -379,9 +463,11 @@ fallar en silencio.
 **Trabajo pendiente:**
 
 - Aplicar a mano en el SQL Editor, **antes del merge** de la rama
-  `fix/lote-por-unidad-y-ram`: **`20260930120000_bloqueos_criterio_unidad_y_ram_promedio.sql`**
-  (versión 5 de criterios y la columna `lote.unidades_no_conformes`). Sin ella el
-  cargador aborta por huella.
+  `fix/tres-hallazgos-motor`: **`20260930180000_bloqueos_criterio_cierre_por_unidad.sql`**
+  (versión 6 de criterios: cierre de lo declarado por unidad, lectura de
+  `detencion.criterios`, lotes de recorte). Sin ella el cargador aborta por huella.
+  La `20260930120000_bloqueos_criterio_unidad_y_ram_promedio.sql` (versión 5) ya está
+  aplicada, con el merge de `e534e63`.
 - Aplicar a mano en el SQL Editor: **`20260818120000_bloqueos_puede_firmar.sql`**, la
   otra pendiente. Todas las anteriores están aplicadas, incluida
   `20260811150000_bloqueos_cajas_por_destino.sql` —que este documento daba por
